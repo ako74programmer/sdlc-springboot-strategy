@@ -1,0 +1,30 @@
+# Configuration file for Spring Boot Project Generator (Spring Initializr API)
+
+project:
+  type: maven-project              # maven-project | gradle-project
+  language: java                   # java | kotlin | groovy
+  bootVersion: latest               # Spring Boot version (leave blank or 'latest' for recommended default)
+  groupId: com.example.sdlc
+  artifactId: springboot-sdlc-demo
+  name: springboot-sdlc-demo
+  description: "Spring Boot Service with Automated AI & Quality Pipeline"
+  packageName: com.example.sdlc.demo
+  packaging: jar                   # jar | war
+  javaVersion: 21                  # 17 | 21 | 23
+
+# Spring Initializr dependency keys (matching start.spring.io identifiers)
+dependencies:
+  - web                            # Spring Web
+  - data-jpa                       # Spring Data JPA
+  - validation                     # Validation (Hibernate Validator)
+  - actuator                       # Spring Boot Actuator
+  - lombok                         # Lombok
+  - h2                             # H2 Database
+  - devtools                       # Spring Boot DevTools
+
+# SDLC Pipeline Enrichments
+sdlc:
+  enableSonarQube: true
+  enableOwaspCheck: true
+  sonarHostUrl: "http://localhost:9000"
+  owaspFailOnCvss: 7.0             # CVSS score threshold to fail build (High/Critical)

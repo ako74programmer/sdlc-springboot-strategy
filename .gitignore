@@ -1,0 +1,24 @@
+# Generated projects output directory
+generated-projects/
+
+# Sensitive tokens & local runtime files
+sonar-token.txt
+*.token
+
+# Temporary archives & build artifacts
+*.zip
+*.log
+*.tmp
+scratch/
+target/
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.iml
+*.swp
+
+# OS specific files
+Thumbs.db
+Desktop.ini
+.DS_Store

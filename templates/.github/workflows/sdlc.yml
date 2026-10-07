@@ -1,0 +1,70 @@
+name: SDLC Quality Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  sdlc-pipeline:
+    name: Build, Test & Quality Gates
+    runs-on: ubuntu-latest
+
+    services:
+      sonarqube:
+        image: sonarqube:community
+        ports:
+          - 9000:9000
+        env:
+          SONAR_FORCEAUTHENTICATION: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      # Gate 1: Compilation
+      - name: "[GATE 1/4] Compile"
+        run: ./mvnw clean compile -B -q
+
+      # Gate 2: Tests + Coverage
+      - name: "[GATE 2/4] Tests"
+        run: ./mvnw verify -B
+
+      # Gate 3: OWASP Dependency Check
+      - name: "[GATE 3/4] Vulnerability Scan"
+        run: ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=7.0 -DautoUpdate=true -B
+
+      # Gate 4: SonarQube Analysis
+      - name: Wait for SonarQube
+        run: |
+          echo "Waiting for SonarQube to start..."
+          for i in $(seq 1 60); do
+            STATUS=$(curl -s http://localhost:9000/api/system/status | jq -r '.status' 2>/dev/null || echo "DOWN")
+            if [ "$STATUS" = "UP" ]; then echo "SonarQube is UP"; break; fi
+            sleep 5
+          done
+
+      - name: "[GATE 4/4] SonarQube Analysis"
+        run: |
+          ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+            -Dsonar.host.url=http://localhost:9000 \
+            -Dsonar.qualitygate.wait=true \
+            -B
+
+      - name: Upload SDLC Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdlc-report
+          path: |
+            target/surefire-reports/
+            target/site/jacoco/
+            target/dependency-check-report.*

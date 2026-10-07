@@ -1,0 +1,15 @@
+cd generated-projects\springboot-sdlc-demo
+
+# 1. Uruchomienie lokalnego SonarQube
+docker-compose up -d
+
+# 2. Uruchomienie lokalnego pipeline'u SDLC
+.\tools\sdlc.ps1
+
+Cleanup → usuń stary projekt
+Generate → generate-project.ps1
+Validate → sdlc.ps1 -SkipSonar -SkipOwasp (walidacja bez Dockera)
+@planner → plan.md dla CRUD
+@developer → implementacja kodu
+@test-engineer → testy
+SDLC loop → sdlc.ps1 → fail? → @quality-fixer → powtórz
