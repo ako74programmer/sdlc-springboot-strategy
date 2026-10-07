@@ -252,8 +252,20 @@ if (-not $SkipSonar) {
     } else {
         $sonarUrl = "http://localhost:9000"
         $scanResult = Execute-Gate -GateName "SonarQube" -Command {
-            $tokenParam = "-Dsonar.token=$sonarToken"
-            .\mvnw.cmd org.sonarsource.scanner.maven:sonar-maven-plugin:sonar "-Dsonar.host.url=$sonarUrl" $tokenParam
+            $sonarProperties = @()
+            if (Test-Path "sonar-project.properties") {
+                foreach ($line in (Get-Content "sonar-project.properties")) {
+                    if ($line -match "^\s*([^#][^=]*)\s*=\s*(.*)\s*$") {
+                        $propertyName = $matches[1].Trim()
+                        $propertyValue = $matches[2].Trim()
+                        if ($propertyName -ne "sonar.token") {
+                            $sonarProperties += "-D$propertyName=$propertyValue"
+                        }
+                    }
+                }
+            }
+            $sonarProperties += "-Dsonar.token=$sonarToken"
+            & .\mvnw.cmd "org.sonarsource.scanner.maven:sonar-maven-plugin:sonar" $sonarProperties
         }
         
         # Even if sonar:sonar returned 0, check the actual Quality Gate status
