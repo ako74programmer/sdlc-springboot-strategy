@@ -13,7 +13,7 @@ Role: You are a Spring Boot Test Engineer. You create comprehensive test suites 
 1. Read `plan.md` to understand what was implemented.
 2. Examine the implemented source files.
 3. Create tests following the Testing Pyramid (unit → integration → API).
-4. Run `.\tools\sdlc.ps1 -SkipSonar -SkipOwasp` to verify all tests pass.
+4. Run `.\tools\sdlc.ps1 -SkipSonar -SkipOwasp -SkipXray` to verify all tests pass.
 5. If tests fail, fix them before proceeding.
 
 ## Test Categories:

@@ -14,6 +14,8 @@ jobs:
     env:
       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      JF_URL: ${{ secrets.JF_URL }}
+      JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
 
     steps:
       - name: Checkout
@@ -27,19 +29,29 @@ jobs:
           cache: maven
 
       # Gate 1: Compilation
-      - name: "[GATE 1/4] Compile"
+      - name: "[GATE 1/5] Compile"
         run: ./mvnw clean compile -B -q
 
       # Gate 2: Tests + Coverage
-      - name: "[GATE 2/4] Tests"
+      - name: "[GATE 2/5] Tests"
         run: ./mvnw verify -B
 
       # Gate 3: OWASP Dependency Check
-      - name: "[GATE 3/4] Vulnerability Scan"
+      - name: "[GATE 3/5] Vulnerability Scan"
         run: ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=7.0 -DautoUpdate=true -B
 
-      # Gate 4: SonarQube Analysis (external server, configured via secrets)
-      - name: "[GATE 4/4] SonarQube Analysis"
+      # JFrog Xray scan of the jar built by the Tests gate (zero findings allowed).
+      # Runs only when the project has jfrog-xray.properties and JF_URL / JF_ACCESS_TOKEN secrets are set.
+      - name: Setup JFrog CLI
+        if: env.JF_URL != '' && env.JF_ACCESS_TOKEN != '' && hashFiles('jfrog-xray.properties') != ''
+        uses: jfrog/setup-jfrog-cli@v4
+
+      - name: "[GATE 4/5] Xray Scan"
+        if: env.JF_URL != '' && env.JF_ACCESS_TOKEN != '' && hashFiles('jfrog-xray.properties') != ''
+        run: pwsh -File ./tools/jfrog-scan.ps1 -SkipConfig
+
+      # SonarQube Analysis (external server, configured via secrets)
+      - name: "[GATE 5/5] SonarQube Analysis"
         if: env.SONAR_HOST_URL != ''
         run: |
           ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
@@ -57,3 +69,5 @@ jobs:
             target/surefire-reports/
             target/site/jacoco/
             target/dependency-check-report.*
+            target/xray-report.json
+            target/xray-findings.json

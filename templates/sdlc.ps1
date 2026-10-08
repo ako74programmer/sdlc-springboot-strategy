@@ -4,6 +4,7 @@
 Param(
     [switch]$SkipSonar,
     [switch]$SkipOwasp,
+    [switch]$SkipXray,
     [string]$MavenSettings = $env:MAVEN_SETTINGS,
     [string]$SonarPluginVersion = "5.8.0.7211"
 )
@@ -30,6 +31,7 @@ $gateStatus = @{
         coverage = @{ line = $null; branch = $null }
     }
     errors    = @()
+    warnings  = @()
 }
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -252,16 +254,50 @@ if ($compileResult.Success) {
 # ============================================
 # GATE 3: Vulnerability Scan (OWASP Dependency Check)
 # ============================================
-if (-not $SkipOwasp) {
+# The gate exists only when the generator added the plugin to pom.xml (enableOwaspCheck)
+if ((-not $SkipOwasp) -and (Select-String -Path "pom.xml" -Pattern "dependency-check-maven" -Quiet)) {
     Execute-Gate -GateName "VulnerabilityCheck" -Command {
-        .\mvnw.cmd @mvnSettingsArgs org.owasp:dependency-check-maven:check "-DfailBuildOnCVSS=7.0" "-DautoUpdate=true" "-DfailOnError=false"
+        # failBuildOnCVSS and failOnError come from the dependency-check plugin config in pom.xml
+        .\mvnw.cmd @mvnSettingsArgs org.owasp:dependency-check-maven:check "-DautoUpdate=true"
     } | Out-Null
+    if (-not (Test-Path "target/dependency-check-report.json")) {
+        Write-Host "    WARNING: no dependency-check report produced - VulnerabilityCheck result is not meaningful" -ForegroundColor DarkYellow
+        $script:gateStatus.warnings += "VulnerabilityCheck produced no dependency-check report (NVD update failed?); do not treat PASS as a clean scan"
+    }
 } else {
     $script:gateStatus.gates["VulnerabilityCheck"] = "SKIPPED"
 }
 
 # ============================================
-# GATE 4: SonarQube Analysis + Quality Gate
+# GATE 4: JFrog Xray Scan (corporate policy, zero findings allowed)
+# Enabled by the presence of jfrog-xray.properties; needs the jar built by the Tests gate.
+# ============================================
+if ((-not $SkipXray) -and (Test-Path "jfrog-xray.properties")) {
+    if ($testResult -and $testResult.Success) {
+        $xrayResult = Execute-Gate -GateName "XrayScan" -Command {
+            & "$PSScriptRoot\jfrog-scan.ps1" *>&1
+        }
+        if (-not $xrayResult.Success -and (Test-Path "target/xray-findings.json")) {
+            # One error per finding so the quality-fixer agent gets exact component, CVE and fix version
+            $script:gateStatus.errors = @($script:gateStatus.errors | Where-Object { $_.gate -ne "XrayScan" })
+            foreach ($f in @(Get-Content "target/xray-findings.json" -Raw | ConvertFrom-Json)) {
+                $fix = if (@($f.fixedVersions).Count) { @($f.fixedVersions) -join " " } else { "no fix available" }
+                $script:gateStatus.errors += @{
+                    gate    = "XrayScan"
+                    summary = "[$($f.severity)] $($f.component) $(@($f.cves) -join ',')"
+                    details = "Fixed in: $fix. $($f.summary)"
+                }
+            }
+        }
+    } else {
+        $script:gateStatus.gates["XrayScan"] = "SKIPPED"
+    }
+} else {
+    $script:gateStatus.gates["XrayScan"] = "SKIPPED"
+}
+
+# ============================================
+# GATE 5: SonarQube Analysis + Quality Gate
 # ============================================
 if (-not $SkipSonar) {
     $sonarUrl = Get-SonarProperty "sonar.host.url" "http://localhost:9000"
@@ -307,8 +343,14 @@ if (-not $SkipSonar) {
                     }
                 }
             }
-            $sonarProperties += "-Dsonar.token=$sonarToken"
-            & .\mvnw.cmd @mvnSettingsArgs "org.sonarsource.scanner.maven:sonar-maven-plugin:${SonarPluginVersion}:sonar" $sonarProperties
+            # The scanner reads SONAR_TOKEN itself; keeps the token out of the process command line
+            $previousSonarToken = $env:SONAR_TOKEN
+            $env:SONAR_TOKEN = $sonarToken
+            try {
+                & .\mvnw.cmd @mvnSettingsArgs "org.sonarsource.scanner.maven:sonar-maven-plugin:${SonarPluginVersion}:sonar" $sonarProperties
+            } finally {
+                $env:SONAR_TOKEN = $previousSonarToken
+            }
         }
         
         # Even if sonar:sonar returned 0, check the actual Quality Gate status

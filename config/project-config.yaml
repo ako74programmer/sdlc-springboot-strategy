@@ -30,7 +30,12 @@ maven:
 # SDLC Pipeline Enrichments
 sdlc:
   enableSonarQube: true
-  enableOwaspCheck: true
+  enableOwaspCheck: false          # off: NVD database cannot be downloaded here; the corporate Xray scan is the vulnerability gate
   sonarHostUrl: "http://localhost:9000"
   owaspFailOnCvss: 7.0             # CVSS score threshold to fail build (High/Critical)
+  owaspFailOnError: false          # only with enableOwaspCheck: true; true = a failed NVD update/analysis fails the gate
+  enableXray: true                 # JFrog Xray gate - zero findings allowed (token: JF_ACCESS_TOKEN or jfrog.token)
+  xrayUrl: "https://ewsi.centrala.bzwbk:9999"
+  xrayWatches: "XrayWatch"         # comma-separated Xray watches
+  xrayInsecureTls: true            # corporate CA not trusted by jf
   jacocoVersion: 0.8.15            # must support the class file version of javaVersion (0.8.15 = Java 25)

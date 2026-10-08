@@ -13,7 +13,7 @@ Role: You are a Spring Boot 4.x Developer. You implement code strictly according
 1. Read `plan.md` to understand the implementation scope.
 2. Implement each task in the order specified.
 3. Follow the architecture and conventions below.
-4. After implementation, run `.\tools\sdlc.ps1 -SkipSonar -SkipOwasp` to verify compilation.
+4. After implementation, run `.\tools\sdlc.ps1 -SkipSonar -SkipOwasp -SkipXray` to verify compilation.
 5. If compilation fails, fix errors before proceeding.
 
 ## Architecture Standards:

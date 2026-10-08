@@ -33,8 +33,9 @@ Requirement → @sdlc-orchestrator
 ## Quality Gates (enforced by `sdlc.ps1`)
 1. **Compilation** — `mvnw clean compile` must succeed
 2. **Tests** — all unit and integration tests must pass
-3. **Vulnerability Scan** — OWASP Dependency-Check, no CVE with CVSS ≥ 7.0
-4. **SonarQube** — analysis upload must succeed AND Quality Gate must return `OK`
+3. **Vulnerability Scan** (when OWASP is enabled) — OWASP Dependency-Check, no CVE with CVSS ≥ 7.0
+4. **XrayScan** (when `jfrog-xray.properties` exists) — JFrog Xray scan of the built jar, zero findings allowed
+5. **SonarQube** — analysis upload must succeed AND Quality Gate must return `OK`
 
 ## Report Format (`sdlc-report.json`)
 The pipeline generates a structured JSON report containing:

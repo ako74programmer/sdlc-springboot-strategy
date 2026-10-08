@@ -58,6 +58,11 @@ $enableSonarQube = Get-YamlValue "enableSonarQube" "true"
 $enableOwaspCheck = Get-YamlValue "enableOwaspCheck" "true"
 $sonarHostUrl    = Get-YamlValue "sonarHostUrl" "http://localhost:9000"
 $owaspFailOnCvss = Get-YamlValue "owaspFailOnCvss" "7.0"
+$owaspFailOnError = Get-YamlValue "owaspFailOnError" "true"
+$enableXray      = Get-YamlValue "enableXray" "false"
+$xrayUrl         = Get-YamlValue "xrayUrl" ""
+$xrayWatches     = Get-YamlValue "xrayWatches" ""
+$xrayInsecureTls = Get-YamlValue "xrayInsecureTls" "false"
 # JaCoCo must understand the class file version produced by javaVersion (0.8.15 covers Java 25)
 $jacocoVersion   = Get-YamlValue "jacocoVersion" "0.8.15"
 
@@ -106,7 +111,8 @@ Write-Host "    GroupId:          $groupId" -ForegroundColor Gray
 Write-Host "    Java Version:     $javaVersion" -ForegroundColor Gray
 Write-Host "    Dependencies:     $depsJoined" -ForegroundColor Gray
 Write-Host "    SonarQube:        $enableSonarQube ($sonarHostUrl)" -ForegroundColor Gray
-Write-Host "    OWASP Check:      $enableOwaspCheck (CVSS >= $owaspFailOnCvss)" -ForegroundColor Gray
+Write-Host "    OWASP Check:      $enableOwaspCheck (CVSS >= $owaspFailOnCvss, failOnError: $owaspFailOnError)" -ForegroundColor Gray
+Write-Host "    JFrog Xray:       $enableXray$(if ($enableXray -eq 'true') { " ($xrayUrl, watches: $xrayWatches)" })" -ForegroundColor Gray
 Write-Host "    Maven settings:   $(if ($MavenSettings) { $MavenSettings } else { 'Maven default (~/.m2/settings.xml)' })" -ForegroundColor Gray
 
 # 2. Call Spring Initializr REST API
@@ -196,6 +202,7 @@ if (Test-Path $pomFile) {
 				<configuration>
 					<format>ALL</format>
 					<failBuildOnCVSS>$owaspFailOnCvss</failBuildOnCVSS>
+					<failOnError>$owaspFailOnError</failOnError>
 				</configuration>
 			</plugin>
 "@
@@ -222,6 +229,33 @@ $sdlcScriptSource = "templates/sdlc.ps1"
 if (Test-Path $sdlcScriptSource) {
     Copy-Item $sdlcScriptSource -Destination (Join-Path $toolsDir "sdlc.ps1") -Force
     Write-Host "    Copied tools/sdlc.ps1" -ForegroundColor Green
+}
+
+# JFrog Xray gate: tools/jfrog-scan.ps1 + jfrog-xray.properties (its presence enables the gate)
+if ($enableXray -eq "true") {
+    if (-not $xrayUrl) { Write-Error "enableXray is true but xrayUrl is empty in $ConfigFile" }
+    Copy-Item "templates/jfrog-scan.ps1" -Destination (Join-Path $toolsDir "jfrog-scan.ps1") -Force
+    $xrayProps = "url=$xrayUrl`nwatches=$xrayWatches`ninsecureTls=$xrayInsecureTls`n"
+    Set-Content -Path (Join-Path $targetPath "jfrog-xray.properties") -Value $xrayProps -Encoding UTF8 -NoNewline
+    Write-Host "    Copied tools/jfrog-scan.ps1, generated jfrog-xray.properties" -ForegroundColor Green
+
+    if (Test-Path "jfrog.token") {
+        Copy-Item "jfrog.token" -Destination (Join-Path $targetPath "jfrog.token") -Force
+        Write-Host "    Copied jfrog.token" -ForegroundColor Green
+    }
+} else {
+    Write-Host "    JFrog Xray disabled in config - skipping Xray gate" -ForegroundColor DarkYellow
+}
+
+# Secrets must never be committed (Initializr's .gitignore does not know them)
+$gitignore = Join-Path $targetPath ".gitignore"
+if (Test-Path $gitignore) {
+    $ignored = Get-Content $gitignore
+    $missing = @("sonar-token.txt", "*.token", ".env") | Where-Object { $ignored -notcontains $_ }
+    if ($missing) {
+        Add-Content -Path $gitignore -Value ((@("") + $missing) -join "`n")
+        Write-Host "    .gitignore: added $($missing -join ', ')" -ForegroundColor Green
+    }
 }
 
 # Generate sonar-project.properties from the template
@@ -254,6 +288,18 @@ $githubSource = "templates/.github"
 if (Test-Path $githubSource) {
     Copy-Item $githubSource -Destination (Join-Path $targetPath ".github") -Recurse -Force
     Write-Host "    Copied .github/ (copilot-instructions, agents, workflows)" -ForegroundColor Green
+
+    # Without the OWASP plugin in pom.xml the CI step would fail; drop it and renumber the gates
+    if ($enableOwaspCheck -ne "true") {
+        $workflow = Join-Path $targetPath ".github/workflows/sdlc.yml"
+        $yml = Get-Content $workflow -Raw
+        $yml = [regex]::Replace($yml, "(?ms)^      # Gate \d+: OWASP Dependency Check\r?\n.*?dependency-check-maven:check[^\r\n]*\r?\n\r?\n", "")
+        $labels = [regex]::Matches($yml, "\[GATE \d+/\d+\]").Count
+        $n = 0
+        $yml = [regex]::Replace($yml, "\[GATE \d+/\d+\]", { $script:n++; "[GATE $script:n/$labels]" })
+        Set-Content -Path $workflow -Value $yml -Encoding UTF8 -NoNewline
+        Write-Host "    OWASP disabled - removed its step from CI workflow" -ForegroundColor DarkYellow
+    }
 }
 
 # 6. Create pre-commit hook
@@ -265,14 +311,14 @@ $preCommitHook = @'
 #!/bin/sh
 # SDLC Pre-Commit Hook
 # Runs compilation and tests before allowing commit.
-# SonarQube/OWASP are skipped for speed (run them manually or in CI).
+# SonarQube/OWASP/Xray are skipped for speed (run them manually or in CI).
 
 echo "Running SDLC pre-commit checks..."
 
 if command -v pwsh &> /dev/null; then
-    pwsh -File ./tools/sdlc.ps1 -SkipSonar -SkipOwasp
+    pwsh -File ./tools/sdlc.ps1 -SkipSonar -SkipOwasp -SkipXray
 elif command -v powershell &> /dev/null; then
-    powershell -File ./tools/sdlc.ps1 -SkipSonar -SkipOwasp
+    powershell -File ./tools/sdlc.ps1 -SkipSonar -SkipOwasp -SkipXray
 else
     echo "PowerShell not found. Running Maven directly..."
     ./mvnw clean verify -q

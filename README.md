@@ -21,7 +21,8 @@ Główna zasada architektoniczna:
   1. Kompilacja projektu (`compile`)
   2. Testy jednostkowe i integracyjne (`test`) + metryki (ilość testów, pokrycie)
   3. Skanowanie podatności zależności CVE (OWASP Dependency Check)
-  4. Statyczna analiza kodu + **walidacja Quality Gate** (SonarQube API)
+  4. Skan JFrog Xray zbudowanego jara — zero podatności (opcjonalnie: `sdlc.enableXray`, token w `JF_ACCESS_TOKEN` lub `jfrog.token`)
+  5. Statyczna analiza kodu + **walidacja Quality Gate** (SonarQube API)
 - 📊 **Strukturalny raport `sdlc-report.json`**: Zawiera status bramek, metryki testów (total/passed/failed), pokrycie kodu (linie/branche) i szczegóły błędów — jako input dla AI.
 - �️ **SonarQube uruchamiany lokalnie bez kontenerów (`scripts/start-sonarqube.ps1`)**: korzysta z rozpakowanej dystrybucji SonarQube Community na dysku (brak wymagania Dockera i uprawnień administratora).
 - 🤖 **5 Agentów AI (`.github/agents/`)**:
@@ -213,7 +214,8 @@ Core architectural principle:
   1. Compilation check (`compile`)
   2. Unit & integration test suite (`test`) + metrics (counts, coverage)
   3. Dependency vulnerability scanning (OWASP Dependency Check)
-  4. Static code analysis + **Quality Gate validation** (SonarQube API)
+  4. JFrog Xray scan of the built jar — zero findings allowed (optional: `sdlc.enableXray`, token in `JF_ACCESS_TOKEN` or `jfrog.token`)
+  5. Static code analysis + **Quality Gate validation** (SonarQube API)
 - 📊 **Structured `sdlc-report.json`**: Contains gate statuses, test metrics (total/passed/failed), code coverage (line/branch), and detailed errors — as input for AI agents.
 - �️ **Container-free local SonarQube (`scripts/start-sonarqube.ps1`)**: Starts an unpacked SonarQube Community distribution from disk — no Docker and no admin rights required.
 - 🤖 **5 AI Agents (`.github/agents/`)**:
