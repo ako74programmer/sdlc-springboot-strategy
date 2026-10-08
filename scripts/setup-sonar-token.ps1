@@ -37,7 +37,7 @@ do {
 } while ($elapsed -lt $MaxWaitSeconds)
 
 if (-not $ready) {
-    Write-Error "SonarQube did not become ready within $MaxWaitSeconds seconds. Is Docker running? Try: docker-compose up -d"
+    Write-Error "SonarQube did not become ready within $MaxWaitSeconds seconds. Start it first: .\scripts\start-sonarqube.ps1"
 }
 
 # 2. Revoke existing token if exists

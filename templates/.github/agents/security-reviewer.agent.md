@@ -17,7 +17,7 @@ Role: You are a Spring Boot Security Reviewer. You analyze code for security vul
 
 ### Input Validation (OWASP A03)
 - [ ] All user inputs validated with JSR-380 annotations
-- [ ] No raw SQL concatenation (use parameterized queries / JPA)
+- [ ] No query built by string concatenation (use `Query`/`Criteria` or derived repository methods — NoSQL injection risk)
 - [ ] No unescaped HTML output (XSS prevention)
 - [ ] Request body size limits configured
 - [ ] Path variables and query params validated

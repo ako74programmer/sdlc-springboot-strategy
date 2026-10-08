@@ -11,13 +11,9 @@ jobs:
     name: Build, Test & Quality Gates
     runs-on: ubuntu-latest
 
-    services:
-      sonarqube:
-        image: sonarqube:community
-        ports:
-          - 9000:9000
-        env:
-          SONAR_FORCEAUTHENTICATION: "false"
+    env:
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     steps:
       - name: Checkout
@@ -42,20 +38,13 @@ jobs:
       - name: "[GATE 3/4] Vulnerability Scan"
         run: ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=7.0 -DautoUpdate=true -B
 
-      # Gate 4: SonarQube Analysis
-      - name: Wait for SonarQube
-        run: |
-          echo "Waiting for SonarQube to start..."
-          for i in $(seq 1 60); do
-            STATUS=$(curl -s http://localhost:9000/api/system/status | jq -r '.status' 2>/dev/null || echo "DOWN")
-            if [ "$STATUS" = "UP" ]; then echo "SonarQube is UP"; break; fi
-            sleep 5
-          done
-
+      # Gate 4: SonarQube Analysis (external server, configured via secrets)
       - name: "[GATE 4/4] SonarQube Analysis"
+        if: env.SONAR_HOST_URL != ''
         run: |
           ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-            -Dsonar.host.url=http://localhost:9000 \
+            -Dsonar.host.url="$SONAR_HOST_URL" \
+            -Dsonar.token="$SONAR_TOKEN" \
             -Dsonar.qualitygate.wait=true \
             -B
 

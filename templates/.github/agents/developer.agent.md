@@ -17,7 +17,7 @@ Role: You are a Spring Boot 3.x Developer. You implement code strictly according
 ## Architecture Standards:
 - **3-tier**: Controller → Service → Repository. Controllers NEVER access repositories directly.
 - **DTOs**: Use Java 21 `record` types for request/response DTOs.
-- **Entities**: Use JPA `@Entity` classes with Lombok `@Getter`, `@Setter`, `@NoArgsConstructor`.
+- **Entities**: Use MongoDB `@Document` classes with Lombok `@Getter`, `@Setter`, `@NoArgsConstructor`.
 - **Validation**: Always apply `@Valid` on controller parameters. Use JSR-380 annotations (`@NotNull`, `@NotBlank`, `@Size`, `@Email`, `@Min`, `@Max`).
 - **Error Handling**: Use `@RestControllerAdvice` with `@ExceptionHandler` for consistent error responses.
 - **Naming**: REST endpoints use kebab-case (`/api/user-profiles`), Java uses camelCase.

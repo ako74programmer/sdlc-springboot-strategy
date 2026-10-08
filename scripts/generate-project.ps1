@@ -3,7 +3,8 @@
 # ==============================================================================
 Param(
     [string]$ConfigFile = "config/project-config.yaml",
-    [string]$OutputDir = "generated-projects"
+    [string]$OutputDir = "generated-projects",
+    [string]$MavenSettings = $env:MAVEN_SETTINGS
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,16 +19,24 @@ if (-not (Test-Path $ConfigFile)) {
 }
 
 Write-Host "[1/7] Reading configuration from $ConfigFile..." -ForegroundColor Yellow
-$configContent = Get-Content $ConfigFile -Raw
+$configLines = Get-Content $ConfigFile
 
-# Simple robust regex parser for project-config.yaml
+# Line-based parser for project-config.yaml (flat key: value pairs, quotes and trailing comments supported)
 function Get-YamlValue([string]$key, [string]$default = "") {
-    if ($configContent -match "$key\s*:\s*[`"']?(.*?)[`"']?\s*(?:#.*)?$") {
-        $val = $matches[1].Trim()
-        if ($val -match "^([^#]+)") {
-            $val = $matches[1].Trim()
+    $pattern = "^\s*$([regex]::Escape($key))\s*:\s*(.*)$"
+    foreach ($line in $configLines) {
+        if ($line -cmatch $pattern) {
+            $raw = $matches[1].Trim()
+            if ($raw -match '^"([^"]*)"') {
+                $val = $matches[1]
+            } elseif ($raw -match "^'([^']*)'") {
+                $val = $matches[1]
+            } else {
+                $val = ($raw -split '#')[0].Trim()
+            }
+            if ($val) { return $val }
+            return $default
         }
-        return $val
     }
     return $default
 }
@@ -50,10 +59,23 @@ $enableOwaspCheck = Get-YamlValue "enableOwaspCheck" "true"
 $sonarHostUrl    = Get-YamlValue "sonarHostUrl" "http://localhost:9000"
 $owaspFailOnCvss = Get-YamlValue "owaspFailOnCvss" "7.0"
 
+# Maven settings.xml (CLI parameter wins over config; empty = Maven default ~/.m2/settings.xml)
+if (-not $MavenSettings) { $MavenSettings = Get-YamlValue "settingsFile" "" }
+$mvnSettingsArgs = @()
+if ($MavenSettings) {
+    if (Test-Path $MavenSettings) {
+        $MavenSettings = (Resolve-Path $MavenSettings).Path
+        $mvnSettingsArgs = @("-s", $MavenSettings)
+    } else {
+        Write-Host "    Warning: Maven settings file not found: $MavenSettings (falling back to Maven default)" -ForegroundColor DarkYellow
+        $MavenSettings = ""
+    }
+}
+
 # Extract dependencies array
 $deps = @()
 $inDeps = $false
-foreach ($line in ($configContent -split "`n")) {
+foreach ($line in $configLines) {
     $lineTrim = $line.Trim()
     if ($lineTrim -match "^dependencies\s*:") {
         $inDeps = $true
@@ -73,7 +95,7 @@ foreach ($line in ($configContent -split "`n")) {
 }
 
 if ($deps.Count -eq 0) {
-    $deps = @("web", "data-jpa", "actuator", "validation", "lombok", "h2")
+    $deps = @("web", "data-mongodb", "actuator", "validation", "lombok")
 }
 $depsJoined = $deps -join ","
 
@@ -83,6 +105,7 @@ Write-Host "    Java Version:     $javaVersion" -ForegroundColor Gray
 Write-Host "    Dependencies:     $depsJoined" -ForegroundColor Gray
 Write-Host "    SonarQube:        $enableSonarQube ($sonarHostUrl)" -ForegroundColor Gray
 Write-Host "    OWASP Check:      $enableOwaspCheck (CVSS >= $owaspFailOnCvss)" -ForegroundColor Gray
+Write-Host "    Maven settings:   $(if ($MavenSettings) { $MavenSettings } else { 'Maven default (~/.m2/settings.xml)' })" -ForegroundColor Gray
 
 # 2. Call Spring Initializr REST API
 $bootVersionParam = if ($bootVersion -and $bootVersion -ne "latest") { "&bootVersion=$bootVersion" } else { "" }
@@ -190,13 +213,6 @@ if (Test-Path $pomFile) {
 # 5. Copy Local SDLC Infrastructure Files
 Write-Host "`n[5/7] Injecting SDLC Tools, SonarQube & Agent Rules..." -ForegroundColor Yellow
 
-# Copy Docker Compose
-$dockerComposeSource = "docker/docker-compose.yml"
-if (Test-Path $dockerComposeSource) {
-    Copy-Item $dockerComposeSource -Destination (Join-Path $targetPath "docker-compose.yml") -Force
-    Write-Host "    Copied docker-compose.yml" -ForegroundColor Green
-}
-
 # Copy tools/sdlc.ps1
 $toolsDir = Join-Path $targetPath "tools"
 New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
@@ -206,21 +222,24 @@ if (Test-Path $sdlcScriptSource) {
     Write-Host "    Copied tools/sdlc.ps1" -ForegroundColor Green
 }
 
-# Generate parametrized sonar-project.properties
-Write-Host "    Generating sonar-project.properties (projectKey=$artifactId)..." -ForegroundColor Green
-$sonarProps = @"
-# SonarQube Project Configuration (auto-generated)
-sonar.projectKey=$artifactId
-sonar.projectName=$name
-sonar.host.url=$sonarHostUrl
-sonar.sourceEncoding=UTF-8
-sonar.sources=src/main/java
-sonar.tests=src/test/java
-sonar.java.binaries=target/classes
-sonar.java.test.binaries=target/test-classes
-sonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-"@
-Set-Content -Path (Join-Path $targetPath "sonar-project.properties") -Value $sonarProps -Encoding UTF8
+# Generate sonar-project.properties from the template
+if ($enableSonarQube -eq "true") {
+    $sonarTemplate = "templates/sonar-project.properties"
+    if (Test-Path $sonarTemplate) {
+        $sonarProjectKey = "${groupId}:${artifactId}"
+        Write-Host "    Generating sonar-project.properties (projectKey=$sonarProjectKey)..." -ForegroundColor Green
+        $sonarProps = (Get-Content $sonarTemplate -Raw).
+            Replace("{{groupId}}", $groupId).
+            Replace("{{artifactId}}", $artifactId).
+            Replace("{{name}}", $name).
+            Replace("{{sonarHostUrl}}", $sonarHostUrl)
+        Set-Content -Path (Join-Path $targetPath "sonar-project.properties") -Value $sonarProps -Encoding UTF8
+    } else {
+        Write-Host "    Warning: $sonarTemplate not found - skipping sonar-project.properties" -ForegroundColor DarkYellow
+    }
+} else {
+    Write-Host "    SonarQube disabled in config - skipping sonar-project.properties" -ForegroundColor DarkYellow
+}
 
 # Copy sonar-token.txt if exists
 if (Test-Path "sonar-token.txt") {
@@ -286,7 +305,7 @@ Write-Host "`n[7/7] Smoke test - verifying generated project compiles..." -Foreg
 $originalLocation = Get-Location
 try {
     Set-Location $targetPath
-    $smokeOutput = & .\mvnw.cmd clean compile 2>&1
+    $smokeOutput = & .\mvnw.cmd @mvnSettingsArgs clean compile 2>&1
     $smokeExit = $LASTEXITCODE
     if ($smokeExit -eq 0) {
         Write-Host "    Smoke test PASSED - project compiles successfully" -ForegroundColor Green
@@ -313,13 +332,12 @@ Write-Host "  +-- .github/agents/       (5 AI agents: planner, developer, test-e
 Write-Host "  +-- .github/workflows/    (CI pipeline mirroring local SDLC)"
 Write-Host "  +-- .githooks/            (pre-commit quality gate)"
 Write-Host "  +-- tools/sdlc.ps1        (local SDLC pipeline)"
-Write-Host "  +-- docker-compose.yml    (SonarQube + PostgreSQL)"
 Write-Host "  +-- sonar-project.properties"
 Write-Host "  +-- pom.xml               (enriched with JaCoCo + OWASP)"
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. cd $targetPath"
-Write-Host "  2. docker-compose up -d                (start local SonarQube)"
+Write-Host "  2. ..\..\scripts\start-sonarqube.ps1   (start local SonarQube distribution)"
 Write-Host "  3. ..\..\scripts\setup-sonar-token.ps1 (generate auth token - waits for SonarQube)"
 Write-Host "  4. .\tools\sdlc.ps1                   (run local SDLC gates)"
 Write-Host "  5. .\tools\enable-hooks.ps1            (enable pre-commit hooks)"

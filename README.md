@@ -23,7 +23,7 @@ Główna zasada architektoniczna:
   3. Skanowanie podatności zależności CVE (OWASP Dependency Check)
   4. Statyczna analiza kodu + **walidacja Quality Gate** (SonarQube API)
 - 📊 **Strukturalny raport `sdlc-report.json`**: Zawiera status bramek, metryki testów (total/passed/failed), pokrycie kodu (linie/branche) i szczegóły błędów — jako input dla AI.
-- 🐳 **Konteneryzacja lokalna (`docker-compose.yml`)**: SonarQube Community Edition + baza PostgreSQL gotowe do użycia od razu po wygenerowaniu.
+- �️ **SonarQube uruchamiany lokalnie bez kontenerów (`scripts/start-sonarqube.ps1`)**: korzysta z rozpakowanej dystrybucji SonarQube Community na dysku (brak wymagania Dockera i uprawnień administratora).
 - 🤖 **5 Agentów AI (`.github/agents/`)**:
   - `planner` — dekompozycja wymagań na plan architektoniczny
   - `developer` — implementacja kodu Spring Boot
@@ -41,8 +41,6 @@ Główna zasada architektoniczna:
 sdlc-springboot-strategy/
 ├── config/
 │   └── project-config.yaml       # Plik konfiguracyjny projektu + SDLC
-├── docker/
-│   └── docker-compose.yml        # Usługi SonarQube + PostgreSQL
 ├── templates/
 │   ├── sdlc.ps1                  # Lokalny skrypt bramek jakościowych
 │   ├── sonar-project.properties  # Szablon konfiguracji SonarQube
@@ -58,6 +56,8 @@ sdlc-springboot-strategy/
 │           └── sdlc.yml          # CI pipeline (GitHub Actions)
 ├── scripts/
 │   ├── generate-project.ps1      # Główny skrypt generatora projektu
+│   ├── start-sonarqube.ps1       # Start lokalnej dystrybucji SonarQube
+│   ├── start-mongo.ps1           # Start lokalnego MongoDB (bez Dockera)
 │   └── setup-sonar-token.ps1     # Generator tokena SonarQube (z auto-wait)
 ├── doc/
 │   └── strategia.md              # Dokumentacja architektoniczna strategii SDLC
@@ -79,7 +79,6 @@ springboot-sdlc-demo/
 │   └── enable-hooks.ps1          # Aktywacja pre-commit hooków
 ├── src/                          # Kod źródłowy Spring Boot
 ├── pom.xml                       # Maven z JaCoCo + OWASP plugins
-├── docker-compose.yml            # Lokalny SonarQube
 ├── sonar-project.properties      # Sparametryzowana konfiguracja SonarQube
 ├── mvnw / mvnw.cmd               # Maven Wrapper
 └── README.md
@@ -91,7 +90,7 @@ springboot-sdlc-demo/
 
 #### Wymagania
 - Java 21 (JDK)
-- Docker & Docker Compose
+- Lokalna dystrybucja SonarQube Community (rozpakowany ZIP) — **bez Dockera**
 - PowerShell 5.1+ (Windows) lub PowerShell Core (Linux/macOS)
 - Git
 
@@ -103,10 +102,12 @@ Dostosuj parametry w `config/project-config.yaml`, a następnie uruchom:
 Nowy projekt zostanie utworzony w katalogu `generated-projects/springboot-sdlc-demo`.  
 Generator automatycznie uruchomi smoke test kompilacji.
 
+**Repozytorium artefaktów (Maven `settings.xml`)**: Maven domyślnie używa `~/.m2/settings.xml` — tam skonfigurowane jest firmowe Artifactory i to wystarcza. Jeśli plik leży gdzie indziej, wskaż go przez `maven.settingsFile` w configu, parametr `-MavenSettings` lub zmienną `MAVEN_SETTINGS`; generator i `tools/sdlc.ps1` przekażą go do Mavena jako `-s`.
+
 #### Krok 2: Uruchom SonarQube
+Skrypt startuje lokalnie rozpakowaną dystrybucję SonarQube (ścieżka do `StartSonar.bat` jest w skrypcie):
 ```powershell
-cd generated-projects\springboot-sdlc-demo
-docker-compose up -d
+.\scripts\start-sonarqube.ps1
 ```
 
 #### Krok 3: Wygeneruj Token SonarQube (Jednorazowo)
@@ -214,7 +215,7 @@ Core architectural principle:
   3. Dependency vulnerability scanning (OWASP Dependency Check)
   4. Static code analysis + **Quality Gate validation** (SonarQube API)
 - 📊 **Structured `sdlc-report.json`**: Contains gate statuses, test metrics (total/passed/failed), code coverage (line/branch), and detailed errors — as input for AI agents.
-- 🐳 **Docker Container Stack (`docker-compose.yml`)**: Pre-configured SonarQube Community Edition + PostgreSQL database.
+- �️ **Container-free local SonarQube (`scripts/start-sonarqube.ps1`)**: Starts an unpacked SonarQube Community distribution from disk — no Docker and no admin rights required.
 - 🤖 **5 AI Agents (`.github/agents/`)**:
   - `planner` — requirement decomposition into architectural plan
   - `developer` — Spring Boot code implementation
@@ -230,7 +231,7 @@ Core architectural principle:
 
 #### Prerequisites
 - Java 21 (JDK)
-- Docker & Docker Compose
+- Local SonarQube Community distribution (unpacked ZIP) — **no Docker required**
 - PowerShell 5.1+ (Windows) or PowerShell Core (Linux/macOS)
 - Git
 
@@ -242,10 +243,11 @@ Configure your metadata in `config/project-config.yaml` and run:
 The newly bootstrapped application will be placed in `generated-projects/springboot-sdlc-demo`.  
 The generator runs a smoke compile test automatically.
 
-#### Step 2: Start Local SonarQube Stack
+**Artifact repository (Maven `settings.xml`)**: Maven picks up `~/.m2/settings.xml` by default. For a settings file in a different location, set `maven.settingsFile` in the config, pass `-MavenSettings`, or export `MAVEN_SETTINGS` — the generator and `tools/sdlc.ps1` forward it to Maven as `-s`.
+
+#### Step 2: Start Local SonarQube
 ```powershell
-cd generated-projects\springboot-sdlc-demo
-docker-compose up -d
+.\scripts\start-sonarqube.ps1
 ```
 
 #### Step 3: Setup SonarQube Authentication Token (One-time)

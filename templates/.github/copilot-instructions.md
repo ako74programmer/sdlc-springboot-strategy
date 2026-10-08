@@ -22,7 +22,8 @@ Requirement → @planner → plan.md → @developer → code → @test-engineer 
 - **Spring Boot 3.x**: Follow standard 3-tier architecture (Controller → Service → Repository).
 - **Validation**: Always annotate DTOs with `@Valid` and JSR-380 constraints (`@NotNull`, `@Size`, `@Email`).
 - **Injection**: Constructor injection only. No `@Autowired` on fields.
-- **Testing**: Use `@WebMvcTest` for API endpoints, `@DataJpaTest` for repositories, `@SpringBootTest` for integration tests. Use AssertJ and Mockito.
+- **Persistence**: Spring Data MongoDB. Documents are `@Document` classes, repositories extend `MongoRepository`. Never build queries by concatenating user input — use `Query`/`Criteria` or derived query methods.
+- **Testing**: Use `@WebMvcTest` for API endpoints, `@DataMongoTest` for repositories, `@SpringBootTest` for integration tests. Use AssertJ and Mockito.
 - **Coverage**: Minimum 60% line coverage enforced by JaCoCo. Aim for 80%+ on service layer.
 
 ## Quality Gates (enforced by `sdlc.ps1`)

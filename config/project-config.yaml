@@ -3,24 +3,29 @@
 project:
   type: maven-project              # maven-project | gradle-project
   language: java                   # java | kotlin | groovy
-  bootVersion: latest               # Spring Boot version (leave blank or 'latest' for recommended default)
+  bootVersion: 4.1.1               # Spring Boot version ('latest' = Initializr recommended default)
   groupId: com.example.sdlc
   artifactId: springboot-sdlc-demo
   name: springboot-sdlc-demo
   description: "Spring Boot Service with Automated AI & Quality Pipeline"
   packageName: com.example.sdlc.demo
   packaging: jar                   # jar | war
-  javaVersion: 21                  # 17 | 21 | 23
+  javaVersion: 25                  # 17 | 21 | 25
 
 # Spring Initializr dependency keys (matching start.spring.io identifiers)
 dependencies:
   - web                            # Spring Web
-  - data-jpa                       # Spring Data JPA
+  - data-mongodb                   # Spring Data MongoDB (local mongod on 127.0.0.1:27017)
   - validation                     # Validation (Hibernate Validator)
   - actuator                       # Spring Boot Actuator
   - lombok                         # Lombok
-  - h2                             # H2 Database
   - devtools                       # Spring Boot DevTools
+
+# Maven build settings
+maven:
+  # Artifact resolution goes through the corporate Artifactory configured in this file.
+  # Leave empty to rely on Maven's default ~/.m2/settings.xml.
+  settingsFile: "C:\Users\160246\.m2\settings.xml"
 
 # SDLC Pipeline Enrichments
 sdlc:

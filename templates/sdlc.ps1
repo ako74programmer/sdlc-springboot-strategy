@@ -3,11 +3,23 @@
 # ==============================================================================
 Param(
     [switch]$SkipSonar,
-    [switch]$SkipOwasp
+    [switch]$SkipOwasp,
+    [string]$MavenSettings = $env:MAVEN_SETTINGS
 )
 
 $ErrorActionPreference = "Continue"
 $reportFile = "sdlc-report.json"
+
+# Empty = Maven resolves artifacts with its default ~/.m2/settings.xml
+$mvnSettingsArgs = @()
+if ($MavenSettings) {
+    if (Test-Path $MavenSettings) {
+        $mvnSettingsArgs = @("-s", (Resolve-Path $MavenSettings).Path)
+        Write-Host "Maven settings: $((Resolve-Path $MavenSettings).Path)" -ForegroundColor Gray
+    } else {
+        Write-Host "Warning: Maven settings file not found: $MavenSettings (using Maven default)" -ForegroundColor DarkYellow
+    }
+}
 $gateStatus = @{
     timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
     status    = "PASSED"
@@ -129,20 +141,23 @@ function Get-SonarToken {
     return $null
 }
 
+# Helper: Read a single property from sonar-project.properties
+function Get-SonarProperty {
+    param([string]$Name, [string]$Default = $null)
+
+    if (-not (Test-Path "sonar-project.properties")) { return $Default }
+    $pattern = "^\s*$([regex]::Escape($Name))\s*=\s*(.+)$"
+    foreach ($line in (Get-Content "sonar-project.properties")) {
+        if ($line -match $pattern) { return $matches[1].Trim() }
+    }
+    return $Default
+}
+
 # Helper: Check SonarQube Quality Gate status via API
 function Check-SonarQualityGate {
     param([string]$SonarUrl, [string]$Token)
-    
-    # Read project key from sonar-project.properties
-    $projectKey = $null
-    if (Test-Path "sonar-project.properties") {
-        foreach ($line in (Get-Content "sonar-project.properties")) {
-            if ($line -match "^sonar\.projectKey\s*=\s*(.+)") {
-                $projectKey = $matches[1].Trim()
-                break
-            }
-        }
-    }
+
+    $projectKey = Get-SonarProperty "sonar.projectKey"
     if (-not $projectKey) {
         Write-Host "    Warning: sonar.projectKey not found in sonar-project.properties" -ForegroundColor DarkYellow
         return $null
@@ -205,7 +220,7 @@ function Check-SonarQualityGate {
 # GATE 1: Compilation
 # ============================================
 $compileResult = Execute-Gate -GateName "Compilation" -Command {
-    .\mvnw.cmd clean compile
+    .\mvnw.cmd @mvnSettingsArgs clean compile
 }
 
 # ============================================
@@ -213,7 +228,7 @@ $compileResult = Execute-Gate -GateName "Compilation" -Command {
 # ============================================
 if ($compileResult.Success) {
     $testResult = Execute-Gate -GateName "Tests" -Command {
-        .\mvnw.cmd verify
+        .\mvnw.cmd @mvnSettingsArgs verify
     }
     Parse-TestResults
     Parse-Coverage
@@ -226,7 +241,7 @@ if ($compileResult.Success) {
 # ============================================
 if (-not $SkipOwasp) {
     Execute-Gate -GateName "VulnerabilityCheck" -Command {
-        .\mvnw.cmd org.owasp:dependency-check-maven:check "-DfailBuildOnCVSS=7.0" "-DautoUpdate=true" "-DfailOnError=false"
+        .\mvnw.cmd @mvnSettingsArgs org.owasp:dependency-check-maven:check "-DfailBuildOnCVSS=7.0" "-DautoUpdate=true" "-DfailOnError=false"
     } | Out-Null
 } else {
     $script:gateStatus.gates["VulnerabilityCheck"] = "SKIPPED"
@@ -250,7 +265,8 @@ if (-not $SkipSonar) {
             details = "Set SONAR_TOKEN env var or create sonar-token.txt via setup-sonar-token.ps1"
         }
     } else {
-        $sonarUrl = "http://localhost:9000"
+        $sonarUrl = Get-SonarProperty "sonar.host.url" "http://localhost:9000"
+        Write-Host "    SonarQube host: $sonarUrl" -ForegroundColor Gray
         $scanResult = Execute-Gate -GateName "SonarQube" -Command {
             $sonarProperties = @()
             if (Test-Path "sonar-project.properties") {
@@ -265,7 +281,7 @@ if (-not $SkipSonar) {
                 }
             }
             $sonarProperties += "-Dsonar.token=$sonarToken"
-            & .\mvnw.cmd "org.sonarsource.scanner.maven:sonar-maven-plugin:sonar" $sonarProperties
+            & .\mvnw.cmd @mvnSettingsArgs "org.sonarsource.scanner.maven:sonar-maven-plugin:sonar" $sonarProperties
         }
         
         # Even if sonar:sonar returned 0, check the actual Quality Gate status

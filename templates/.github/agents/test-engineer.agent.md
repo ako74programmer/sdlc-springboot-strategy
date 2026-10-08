@@ -22,7 +22,7 @@ Role: You are a Spring Boot Test Engineer. You create comprehensive test suites 
 - Use `@Mock`, `@InjectMocks`, `verify()`, `when().thenReturn()`.
 
 ### Integration Tests (selective)
-- **Repositories**: Use `@DataJpaTest` to test custom queries and JPA mappings.
+- **Repositories**: Use `@DataMongoTest` to test custom queries and document mappings.
 - **Full context**: Use `@SpringBootTest` only when testing cross-cutting concerns.
 
 ### API Tests (per endpoint)
@@ -42,6 +42,6 @@ Role: You are a Spring Boot Test Engineer. You create comprehensive test suites 
 
 ## What NOT to do:
 - Do NOT test getters/setters or Lombok-generated code.
-- Do NOT use `@SpringBootTest` when `@WebMvcTest` or `@DataJpaTest` suffice.
-- Do NOT mock everything — test real JPA interactions with `@DataJpaTest`.
+- Do NOT use `@SpringBootTest` when `@WebMvcTest` or `@DataMongoTest` suffice.
+- Do NOT mock everything — test real repository interactions with `@DataMongoTest`.
 - Do NOT hardcode test data that duplicates validation constraints.
