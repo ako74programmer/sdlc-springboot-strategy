@@ -4,6 +4,7 @@
 1. **Source of Truth**: The local SDLC pipeline executed via `.\tools\sdlc.ps1` is the absolute authority on code quality. Never claim code is correct without pipeline verification.
 2. **Self-Correction Loop**: When `sdlc-report.json` indicates `FAILED`, inspect the `errors` array and `metrics` section, fix the exact failures, and re-run the pipeline.
 3. **Agent Delegation**: Use specialized agents for distinct tasks:
+   - `@sdlc-orchestrator` — end-to-end delivery; drives the agents below until the pipeline is green
    - `@planner` — architecture & task decomposition (outputs `plan.md`)
    - `@developer` — code implementation following `plan.md`
    - `@test-engineer` — test creation following the testing pyramid
@@ -12,14 +13,17 @@
 
 ## SDLC Workflow
 ```
-Requirement → @planner → plan.md → @developer → code → @test-engineer → tests
-→ .\tools\sdlc.ps1 → sdlc-report.json → PASS? → DONE
-                                        → FAIL? → @quality-fixer → re-run
+Requirement → @sdlc-orchestrator
+   → @planner → plan.md → @developer → code → @test-engineer → tests
+   → @security-reviewer → security-review.md
+   → .\tools\sdlc.ps1 → sdlc-report.json → PASS? → DONE
+                                           → FAIL? → @quality-fixer → re-run
 ```
 
 ## Code Standards
-- **Java Version**: Java 21 features (records, pattern matching, sealed classes) preferred.
-- **Spring Boot 3.x**: Follow standard 3-tier architecture (Controller → Service → Repository).
+- **Java Version**: Java 25 features (records, pattern matching, sealed classes) preferred.
+- **Spring Boot 4.x**: Follow standard 3-tier architecture (Controller → Service → Repository).
+- **Packages**: Package by feature, not by layer — `com.example.app.customer` holds `Customer`, `CustomerRepository`, `CustomerService`, `CustomerController`, `CustomerDto`. Cross-cutting code (`exception`, `config`) gets its own package.
 - **Validation**: Always annotate DTOs with `@Valid` and JSR-380 constraints (`@NotNull`, `@Size`, `@Email`).
 - **Injection**: Constructor injection only. No `@Autowired` on fields.
 - **Persistence**: Spring Data MongoDB. Documents are `@Document` classes, repositories extend `MongoRepository`. Never build queries by concatenating user input — use `Query`/`Criteria` or derived query methods.

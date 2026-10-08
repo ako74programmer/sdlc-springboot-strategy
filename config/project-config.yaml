@@ -33,3 +33,4 @@ sdlc:
   enableOwaspCheck: true
   sonarHostUrl: "http://localhost:9000"
   owaspFailOnCvss: 7.0             # CVSS score threshold to fail build (High/Critical)
+  jacocoVersion: 0.8.15            # must support the class file version of javaVersion (0.8.15 = Java 25)

@@ -58,6 +58,8 @@ $enableSonarQube = Get-YamlValue "enableSonarQube" "true"
 $enableOwaspCheck = Get-YamlValue "enableOwaspCheck" "true"
 $sonarHostUrl    = Get-YamlValue "sonarHostUrl" "http://localhost:9000"
 $owaspFailOnCvss = Get-YamlValue "owaspFailOnCvss" "7.0"
+# JaCoCo must understand the class file version produced by javaVersion (0.8.15 covers Java 25)
+$jacocoVersion   = Get-YamlValue "jacocoVersion" "0.8.15"
 
 # Maven settings.xml (CLI parameter wins over config; empty = Maven default ~/.m2/settings.xml)
 if (-not $MavenSettings) { $MavenSettings = Get-YamlValue "settingsFile" "" }
@@ -144,7 +146,7 @@ if (Test-Path $pomFile) {
 			<plugin>
 				<groupId>org.jacoco</groupId>
 				<artifactId>jacoco-maven-plugin</artifactId>
-				<version>0.8.12</version>
+				<version>$jacocoVersion</version>
 				<executions>
 					<execution>
 						<goals>
@@ -203,7 +205,7 @@ if (Test-Path $pomFile) {
     if ($pomXml.Contains("</plugins>")) {
         $pomXml = $pomXml.Replace("</plugins>", "$sdlcPlugins`n`t`t</plugins>")
         Set-Content -Path $pomFile -Value $pomXml -Encoding UTF8
-        Write-Host "    JaCoCo plugin added (with 60% coverage threshold)" -ForegroundColor Green
+        Write-Host "    JaCoCo plugin added (version $jacocoVersion, 60% coverage threshold)" -ForegroundColor Green
         if ($enableOwaspCheck -eq "true") {
             Write-Host "    OWASP Dependency-Check plugin added (CVSS >= $owaspFailOnCvss)" -ForegroundColor Green
         }
@@ -328,7 +330,7 @@ Write-Host "Location: $targetPath"
 Write-Host ""
 Write-Host "Generated structure:" -ForegroundColor Gray
 Write-Host "  $artifactId/"
-Write-Host "  +-- .github/agents/       (5 AI agents: planner, developer, test-engineer, security-reviewer, quality-fixer)"
+Write-Host "  +-- .github/agents/       (6 AI agents: sdlc-orchestrator, planner, developer, test-engineer, security-reviewer, quality-fixer)"
 Write-Host "  +-- .github/workflows/    (CI pipeline mirroring local SDLC)"
 Write-Host "  +-- .githooks/            (pre-commit quality gate)"
 Write-Host "  +-- tools/sdlc.ps1        (local SDLC pipeline)"
@@ -336,8 +338,9 @@ Write-Host "  +-- sonar-project.properties"
 Write-Host "  +-- pom.xml               (enriched with JaCoCo + OWASP)"
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
-Write-Host "  1. cd $targetPath"
-Write-Host "  2. ..\..\scripts\start-sonarqube.ps1   (start local SonarQube distribution)"
-Write-Host "  3. ..\..\scripts\setup-sonar-token.ps1 (generate auth token - waits for SonarQube)"
-Write-Host "  4. .\tools\sdlc.ps1                   (run local SDLC gates)"
-Write-Host "  5. .\tools\enable-hooks.ps1            (enable pre-commit hooks)"
+Write-Host "  1. .\scripts\env-up.ps1 -ProjectPath $targetPath   (MongoDB + SonarQube + token)"
+Write-Host "  2. cd $targetPath"
+Write-Host "  3. .\tools\sdlc.ps1                   (run local SDLC gates)"
+Write-Host "  4. .\tools\enable-hooks.ps1            (enable pre-commit hooks)"
+Write-Host ""
+Write-Host "  Shut the environment down with: .\scripts\env-down.ps1"

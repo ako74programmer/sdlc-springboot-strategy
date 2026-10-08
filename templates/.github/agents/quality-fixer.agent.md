@@ -1,6 +1,8 @@
 ---
 name: quality-fixer
-description: Agent naprawiający błędy kompilacji, testów, SonarQube i bezpieczeństwa na podstawie pliku sdlc-report.json
+description: "Use when: sdlc-report.json reports FAILED gates - compilation errors, failing tests, coverage below threshold, OWASP findings or a red SonarQube Quality Gate."
+model: ['claude-sonnet-5.5', 'gpt-5.3-codex', 'claude-haiku-5.5']
+tools: [read, edit, search, execute]
 ---
 
 # Quality Fixer Agent Instructions

@@ -1,6 +1,9 @@
 ---
 name: security-reviewer
-description: Agent analizujący kod pod kątem podatności bezpieczeństwa (OWASP Top 10, Spring Security)
+description: "Use when: auditing Spring Boot code for OWASP Top 10 issues, NoSQL injection, authentication and secret handling. Outputs security-review.md, does not modify production code."
+model: ['claude-opus-5', 'gpt-6-sol', 'claude-sonnet-5.5']
+reasoning-effort: high
+tools: [read, search, edit]
 ---
 
 # Security Reviewer Agent Instructions

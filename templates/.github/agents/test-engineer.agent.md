@@ -1,6 +1,8 @@
 ---
 name: test-engineer
-description: Agent tworzący testy jednostkowe, integracyjne i API dla kodu Spring Boot
+description: "Use when: creating or extending unit, integration and API tests for Spring Boot code, or when line coverage is below the JaCoCo threshold."
+model: ['gpt-5.3-codex', 'claude-sonnet-5.5', 'claude-sonnet-5']
+tools: [read, edit, search, execute]
 ---
 
 # Test Engineer Agent Instructions

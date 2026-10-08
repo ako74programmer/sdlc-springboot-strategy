@@ -4,7 +4,8 @@
 Param(
     [switch]$SkipSonar,
     [switch]$SkipOwasp,
-    [string]$MavenSettings = $env:MAVEN_SETTINGS
+    [string]$MavenSettings = $env:MAVEN_SETTINGS,
+    [string]$SonarPluginVersion = "5.8.0.7211"
 )
 
 $ErrorActionPreference = "Continue"
@@ -129,16 +130,28 @@ function Parse-Coverage {
     }
 }
 
-# Helper: Resolve SonarQube token (no hardcoded fallback)
+# Helper: Resolve SonarQube token (no hardcoded fallback); returns token + where it came from
 function Get-SonarToken {
     if ($env:SONAR_TOKEN) {
-        return $env:SONAR_TOKEN
+        return @{ Token = $env:SONAR_TOKEN; Source = "environment variable SONAR_TOKEN" }
     }
     if (Test-Path "sonar-token.txt") {
         $token = (Get-Content "sonar-token.txt" -Raw).Trim()
-        if ($token) { return $token }
+        if ($token) { return @{ Token = $token; Source = "sonar-token.txt" } }
     }
     return $null
+}
+
+# Helper: Verify the token is accepted by this SonarQube server before launching Maven
+function Test-SonarToken {
+    param([string]$SonarUrl, [string]$Token)
+
+    try {
+        $resp = Invoke-RestMethod -Uri "$SonarUrl/api/authentication/validate" -Headers @{ Authorization = "Bearer $Token" } -ErrorAction Stop
+        return [bool]$resp.valid
+    } catch {
+        return $false
+    }
 }
 
 # Helper: Read a single property from sonar-project.properties
@@ -251,8 +264,11 @@ if (-not $SkipOwasp) {
 # GATE 4: SonarQube Analysis + Quality Gate
 # ============================================
 if (-not $SkipSonar) {
-    $sonarToken = Get-SonarToken
-    if (-not $sonarToken) {
+    $sonarUrl = Get-SonarProperty "sonar.host.url" "http://localhost:9000"
+    $tokenInfo = Get-SonarToken
+    Write-Host "`n    SonarQube host: $sonarUrl" -ForegroundColor Gray
+
+    if (-not $tokenInfo) {
         Write-Host "`n[GATE FAIL] SonarQube" -ForegroundColor Red
         Write-Host "    ERROR: No SonarQube token found." -ForegroundColor Red
         Write-Host "    Set SONAR_TOKEN environment variable or run:" -ForegroundColor Yellow
@@ -264,9 +280,20 @@ if (-not $SkipSonar) {
             summary = "No authentication token available"
             details = "Set SONAR_TOKEN env var or create sonar-token.txt via setup-sonar-token.ps1"
         }
+    } elseif (-not (Test-SonarToken -SonarUrl $sonarUrl -Token $tokenInfo.Token)) {
+        Write-Host "`n[GATE FAIL] SonarQube" -ForegroundColor Red
+        Write-Host "    ERROR: $sonarUrl rejected the token from $($tokenInfo.Source)." -ForegroundColor Red
+        Write-Host "    A token is bound to one server - a token for another SonarQube will always return 401." -ForegroundColor Yellow
+        Write-Host "    Fix: clear the stale value (`$env:SONAR_TOKEN = `$null) and run .\scripts\setup-sonar-token.ps1" -ForegroundColor Yellow
+        $script:gateStatus.gates["SonarQube"] = "FAIL"
+        $script:gateStatus.status = "FAILED"
+        $script:gateStatus.errors += @{
+            gate    = "SonarQube"
+            summary = "Token rejected by $sonarUrl (HTTP 401)"
+            details = "Token source: $($tokenInfo.Source). Generate a token on this server via setup-sonar-token.ps1 or the SonarQube UI (My Account > Security)."
+        }
     } else {
-        $sonarUrl = Get-SonarProperty "sonar.host.url" "http://localhost:9000"
-        Write-Host "    SonarQube host: $sonarUrl" -ForegroundColor Gray
+        $sonarToken = $tokenInfo.Token
         $scanResult = Execute-Gate -GateName "SonarQube" -Command {
             $sonarProperties = @()
             if (Test-Path "sonar-project.properties") {
@@ -281,7 +308,7 @@ if (-not $SkipSonar) {
                 }
             }
             $sonarProperties += "-Dsonar.token=$sonarToken"
-            & .\mvnw.cmd @mvnSettingsArgs "org.sonarsource.scanner.maven:sonar-maven-plugin:sonar" $sonarProperties
+            & .\mvnw.cmd @mvnSettingsArgs "org.sonarsource.scanner.maven:sonar-maven-plugin:${SonarPluginVersion}:sonar" $sonarProperties
         }
         
         # Even if sonar:sonar returned 0, check the actual Quality Gate status

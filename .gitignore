@@ -9,6 +9,7 @@ sonar-token.txt
 *.zip
 *.log
 *.tmp
+logs/
 scratch/
 target/
 
