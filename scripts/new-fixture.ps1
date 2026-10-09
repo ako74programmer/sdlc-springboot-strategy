@@ -1,8 +1,8 @@
 # ==============================================================================
-# CREATE A TRAINING PROJECT FROM A FIXTURE
-# Generates the fixed base (fixtures/fixture-config.yaml), strips our tooling so it looks
-# like downloaded code, overlays fixtures/_base and fixtures/<Name>, commits it as a fresh git repo.
-# fixtures/<Name>/expected.md (task text + answer) is NOT copied into the project.
+# CREATE A TRAINING PROJECT FROM A TEST SCENARIO (tests/scenarios, see its README.md)
+# Generates the fixed base (tests/scenarios/fixture-config.yaml), strips our tooling so it looks
+# like downloaded code, overlays tests/scenarios/_base and tests/scenarios/<Name>, commits it as a fresh git repo.
+# tests/scenarios/<Name>/expected.md (task text + answer) is NOT copied into the project.
 #
 # Usage:
 #   .\scripts\new-fixture.ps1 -Name b2-failing-test
@@ -16,12 +16,12 @@ Param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
-$fixturesDir = Join-Path $repoRoot "fixtures"
+$fixturesDir = Join-Path $repoRoot "tests\scenarios"
 $fixtureDir = Join-Path $fixturesDir $Name
 
 if (-not (Test-Path $fixtureDir)) {
     $available = (Get-ChildItem $fixturesDir -Directory | Where-Object Name -ne "_base").Name -join ", "
-    Write-Error "Fixture '$Name' not found. Available: $available"
+    Write-Error "Scenario '$Name' not found in tests\scenarios. Available: $available"
 }
 
 function Get-ConfigValue([string]$file, [string]$key) {
@@ -49,7 +49,7 @@ $tmp = Join-Path $repoRoot ("scratch\fixture-" + [guid]::NewGuid().ToString("N")
 Push-Location $repoRoot
 try {
     Write-Host "[1/4] Generating base project..." -ForegroundColor Yellow
-    $genArgs = @{ ConfigFile = "fixtures/fixture-config.yaml"; OutputDir = $tmp }
+    $genArgs = @{ ConfigFile = "tests/scenarios/fixture-config.yaml"; OutputDir = $tmp }
     if ($mavenSettings) { $genArgs.MavenSettings = $mavenSettings }
     & (Join-Path $PSScriptRoot "generate-project.ps1") @genArgs *> $null
     $src = Join-Path $tmp "shop-service"
@@ -90,5 +90,5 @@ try {
 }
 
 Write-Host "`nFixture ready: $target" -ForegroundColor Green
-Write-Host "Task text and acceptance criteria: fixtures\$Name\expected.md (do not give the answer section to the agents)" -ForegroundColor Gray
+Write-Host "Task text and acceptance criteria: tests\scenarios\$Name\expected.md (do not give the answer section to the agents)" -ForegroundColor Gray
 Write-Host "Next: .\scripts\attach-project.ps1 -Project $ProjectName -ProjectsDir $ProjectsDir -Scenario <type from expected.md>" -ForegroundColor Gray

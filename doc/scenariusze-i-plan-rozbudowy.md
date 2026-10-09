@@ -163,7 +163,7 @@ Przepływy w orchestratorze (jedna tabela, bez osobnych orchestratorów):
 
 Do ćwiczeń potrzebne projekty z celowo wstrzykniętymi problemami. Bez nich nie da się sprawdzić, czy nowe agenci i bramki działają.
 
-- Katalog `fixtures/` z gotowymi, małymi projektami lub łatkami (`*.patch`) nakładanymi na świeżo wygenerowany projekt greenfield.
+- Katalog `tests/scenarios/` (wcześniej `fixtures/`) z gotowymi, małymi projektami lub łatkami nakładanymi na świeżo wygenerowany projekt greenfield; instrukcja w `tests/scenarios/README.md`.
 - Jeden fixture na scenariusz priorytetu P1/P2: `b1-broken-build`, `b2-failing-test`, `b3-bug-report`, `b6-red-sonar`, `c1-god-class`, `c2-add-feature`, `c3-low-coverage`, `c4-boot-upgrade`.
 - Każdy fixture ma `expected.md`: co jest błędem, jaki jest poprawny wynik, ile prób dopuszczamy. To jest kryterium zaliczenia ćwiczenia.
 - Skrypt `scripts/new-fixture.ps1 -Name b2-failing-test` rozpakowuje fixture do `scratch\` i uruchamia scenariusz.
