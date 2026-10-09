@@ -56,7 +56,7 @@ try {
     if (-not (Test-Path (Join-Path $src "pom.xml"))) { Write-Error "Base generation failed (no pom.xml in $src)" }
 
     Write-Host "[2/4] Stripping SDLC tooling (downloaded code does not have it)..." -ForegroundColor Yellow
-    foreach ($item in @("tools", ".github", ".githooks", "target", "sonar-project.properties", "jfrog-xray.properties", "jfrog.token", "sonar-token.txt", "HELP.md")) {
+    foreach ($item in @("tools", ".github", ".githooks", "target", "sonar-project.properties", "jfrog-xray.properties", "jfrog.token", "sonar-token.txt", "HELP.md", ".sdlc-generated")) {
         $p = Join-Path $src $item
         if (Test-Path $p) { Remove-Item $p -Recurse -Force }
     }

@@ -16,7 +16,7 @@ Repozytorium jest generatorem projektów Spring Boot (Initializr) z wbudowanym p
 | Element | Rola |
 |---|---|
 | `config/project-config.yaml` | Jedyne źródło konfiguracji generatora i bramek |
-| `scripts/generate-project.ps1` | Generuje projekt do `generated-projects/<artifactId>`, wstrzykuje pom, narzędzia, agentów, hook, `.gitignore` |
+| `scripts/generate-project.ps1` | Generuje projekt do `projects/<artifactId>` (`projectsDir`), znacznik `.sdlc-generated`; katalog bez znacznika nadpisuje tylko z `-Force`. Wstrzykuje pom, narzędzia, agentów, hook, `.gitignore` |
 | `scripts/env-up.ps1` | Podnosi MongoDB (27017) i SonarQube (9000), tworzy token Sonara, kopiuje do projektu |
 | `templates/greenfield/sdlc.ps1` | Lokalny pipeline bramek, kopiowany jako `tools/sdlc.ps1`; zapisuje `sdlc-report.json` |
 | `templates/greenfield/jfrog-scan.ps1` | Bramka Xray, kopiowana jako `tools/jfrog-scan.ps1` |
@@ -45,7 +45,7 @@ Wszystko poniżej to odczyt. Uruchamiaj z katalogu głównego repozytorium.
 ### 4.1 Przed startem
 
 1. Terminal agenta nie ma starych zmiennych: `SONAR_TOKEN`, `JF_URL`, `JF_ACCESS_TOKEN`. Stary `SONAR_TOKEN` ma pierwszeństwo przed `sonar-token.txt` i psuje bramkę Sonara.
-2. `generated-projects\<projekt>` ma: `tools\sdlc.ps1`, `tools\jfrog-scan.ps1`, `jfrog-xray.properties`, `.github\agents`, `.gitignore` z `jfrog.token`, `sonar-token.txt`, `*.token`, `.env`.
+2. `projects\<projekt>` ma: `tools\sdlc.ps1`, `tools\jfrog-scan.ps1`, `jfrog-xray.properties`, `.github\agents`, `.gitignore` z `jfrog.token`, `sonar-token.txt`, `*.token`, `.env`.
 3. `pom.xml` projektu: brak wpisu `dependency-check-maven`, gdy OWASP wyłączony.
 
 ### 4.2 Planner (`plan.md`)
@@ -76,7 +76,7 @@ Oceń jakość: czy pokrywa OWASP Top 10, NoSQL injection, mass assignment, wyci
 ### 4.5 Raport pipeline
 
 ```powershell
-cd generated-projects\<projekt>
+cd projects\<projekt>
 $r = Get-Content sdlc-report.json -Raw | ConvertFrom-Json
 "status: $($r.status)"; $r.gates | Format-List
 "tests: $($r.metrics.tests.total)/$($r.metrics.tests.passed) cov: $($r.metrics.coverage.line)/$($r.metrics.coverage.branch)"

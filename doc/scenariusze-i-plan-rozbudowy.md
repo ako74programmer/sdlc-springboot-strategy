@@ -94,7 +94,7 @@ Scenariusz greenfield działa i nie może zostać zepsuty przez rozbudowę.
 - **Dwa rozdzielne szablony (decyzja 2026-10-09):** `templates/greenfield/` (generator) i `templates/brownfield/` (`attach-project.ps1`). Pliki wspólne (`sdlc.ps1`, `jfrog-scan.ps1`, `sonar-project.properties`, agenci) mają osobne kopie w każdym szablonie, bo w brownfield i tak się rozjadą. Jedyna zmiana generatora: ścieżki na `templates/greenfield` (test regresji: wynik identyczny, 26 plików).
 - Każda późniejsza zmiana istniejącego pliku (np. bramki w `sdlc.ps1` w Fazie 2) wymaga wcześniej testu regresji greenfield i osobnej zgody użytkownika.
 - **Test regresji greenfield:** generacja do `scratch\gen-before` przed zmianami i do `scratch\gen-after` po nich (`-OutputDir`, bez dotykania `generated-projects/`), porównanie listy plików i sum kontrolnych, potem usunięcie obu katalogów. Przy zmianach w `sdlc.ps1` dodatkowo przebieg bramek na projekcie greenfield z `scratch`.
-- **Katalogi:** `generated-projects/` zostaje bez zmian (wyłącznie generator). Kod pobrany przez użytkownika trafia do osobnego `projects/`, którego generator nie dotyka, więc regeneracja nie może skasować pobranego kodu.
+- **Katalogi (zmiana 2026-10-09):** jeden katalog `projects/` (`projectsDir`) na projekty generowane i pobrane. Generator oznacza swoje projekty plikiem `.sdlc-generated` i bez `-Force` nadpisuje tylko takie katalogi, więc regeneracja nie może skasować pobranego kodu. `generated-projects/` zostaje tylko w `.gitignore` dla starych katalogów.
 
 ### 4.1 Zmiany architektoniczne generatora
 

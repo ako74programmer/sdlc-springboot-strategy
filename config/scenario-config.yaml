@@ -2,7 +2,8 @@
 # Separate from project-config.yaml on purpose: the generator's flat parser already uses keys like "type".
 # Keys must stay unique across this file.
 
-# Folder with code downloaded by the user (never touched by generate-project.ps1)
+# Folder for all projects: generated (greenfield, marked with .sdlc-generated) and downloaded by the user.
+# The generator replaces only folders carrying its marker; anything else needs -Force.
 projectsDir: projects
 
 # greenfield | buildfix | bugfix | sonarfix | vulnfix | refactor | feature | tests | migration | review

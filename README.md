@@ -103,9 +103,9 @@ Dostosuj parametry w `config/project-config.yaml`, a następnie uruchom:
 ```powershell
 .\scripts\generate-project.ps1
 ```
-Nowy projekt zostanie utworzony w katalogu `generated-projects/springboot-sdlc-demo`.
+Nowy projekt zostanie utworzony w katalogu `projects/springboot-sdlc-demo` (`projectsDir` w `config/scenario-config.yaml`). Generator oznacza swoje projekty plikiem `.sdlc-generated` i nadpisuje tylko takie katalogi; istniejący katalog bez znacznika (np. pobrany kod) wymaga `-Force`.
 
-**Istniejący projekt (brownfield)**: pobierz kod do `projects/<nazwa>` i uruchom `.\scripts\attach-project.ps1 -Project <nazwa>` (albo `.\scripts\start-scenario.ps1 -Scenario bugfix -Project <nazwa>`). Skrypt tworzy gałąź `sdlc-work`, dodaje tylko brakujące narzędzia (wpisane do `.git/info/exclude`), dopisuje JaCoCo do `pom.xml` (sam pomiar), a na końcu uruchamia `tools\recon.ps1` i zapisuje `recon-report.json`. Generator nigdy nie dotyka `projects/`.
+**Istniejący projekt (brownfield)**: pobierz kod do `projects/<nazwa>` i uruchom `.\scripts\attach-project.ps1 -Project <nazwa>` (albo `.\scripts\start-scenario.ps1 -Scenario bugfix -Project <nazwa>`). Skrypt tworzy gałąź `sdlc-work`, dodaje tylko brakujące narzędzia (wpisane do `.git/info/exclude`), dopisuje JaCoCo do `pom.xml` (sam pomiar), a na końcu uruchamia `tools\recon.ps1` i zapisuje `recon-report.json`. Generator nie nadpisze pobranego kodu (brak znacznika `.sdlc-generated`).
 
 **Brownfield - bramki porównawcze**: przed pierwszą zmianą `.\tools\sdlc.ps1 -Baseline` (zapis `sdlc-baseline.json`), potem każdy przebieg sprawdza `Regression` (żaden wcześniej zielony test nie pada, pokrycie i liczba problemów Sonara nie gorsze), `TestIntegrity` (brak usuniętych/wyłączonych/osłabionych testów, `NOSONAR`, zmian w `sonar-project.properties`), `DiffGuard` (rozmiar zmiany) i opcjonalnie `ReproTest` (`-ReproTest Klasa#metoda`: test czerwony przed poprawką, zielony po niej). Projekty treningowe: `.\scripts\new-fixture.ps1 -Name b2-failing-test` (lista w `fixtures/`).  
 Generator automatycznie uruchomi smoke test kompilacji.
@@ -249,7 +249,7 @@ Configure your metadata in `config/project-config.yaml` and run:
 ```powershell
 .\scripts\generate-project.ps1
 ```
-The newly bootstrapped application will be placed in `generated-projects/springboot-sdlc-demo`.  
+The newly bootstrapped application will be placed in `projects/springboot-sdlc-demo` (`projectsDir` in `config/scenario-config.yaml`).  
 The generator runs a smoke compile test automatically.
 
 **Artifact repository (Maven `settings.xml`)**: Maven picks up `~/.m2/settings.xml` by default. For a settings file in a different location, set `maven.settingsFile` in the config, pass `-MavenSettings`, or export `MAVEN_SETTINGS` — the generator and `tools/sdlc.ps1` forward it to Maven as `-s`.

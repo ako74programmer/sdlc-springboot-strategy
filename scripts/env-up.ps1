@@ -3,7 +3,7 @@
 #
 # Usage:
 #   .\scripts\env-up.ps1
-#   .\scripts\env-up.ps1 -ProjectPath generated-projects\springboot-sdlc-demo
+#   .\scripts\env-up.ps1 -ProjectPath projects\springboot-sdlc-demo
 #   .\scripts\env-up.ps1 -SkipToken
 
 [CmdletBinding()]

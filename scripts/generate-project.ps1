@@ -3,12 +3,25 @@
 # ==============================================================================
 Param(
     [string]$ConfigFile = "config/project-config.yaml",
-    [string]$OutputDir = "generated-projects",
-    [string]$MavenSettings = $env:MAVEN_SETTINGS
+    # Empty = projectsDir from config/scenario-config.yaml (default "projects")
+    [string]$OutputDir = "",
+    [string]$MavenSettings = $env:MAVEN_SETTINGS,
+    # Allows replacing an existing folder that this generator did not create
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
 $templateDir = "templates/greenfield"
+$generatedMarker = ".sdlc-generated"
+
+if (-not $OutputDir) {
+    $OutputDir = "projects"
+    $scenarioConfig = "config/scenario-config.yaml"
+    if (Test-Path $scenarioConfig) {
+        $line = Get-Content $scenarioConfig | Where-Object { $_ -match '^\s*projectsDir\s*:' } | Select-Object -First 1
+        if ($line -match ':\s*"?([^"#]+?)"?\s*(#.*)?$') { $OutputDir = $matches[1].Trim() }
+    }
+}
 
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "   Spring Boot SDLC Project Template Generator    " -ForegroundColor Cyan
@@ -135,11 +148,17 @@ $targetPath = Join-Path $OutputDir $artifactId
 Write-Host "`n[3/7] Unpacking template to: $targetPath..." -ForegroundColor Yellow
 
 if (Test-Path $targetPath) {
+    # Projects share one folder with downloaded code; only our own output may be replaced silently
+    if (-not (Test-Path (Join-Path $targetPath $generatedMarker)) -and -not $Force) {
+        Remove-Item $tempZip -Force
+        Write-Error "$targetPath exists and was not created by this generator (no $generatedMarker). Nothing was deleted. Change artifactId, remove the folder yourself, or re-run with -Force."
+    }
     Remove-Item $targetPath -Recurse -Force
 }
 New-Item -ItemType Directory -Path $targetPath -Force | Out-Null
 Expand-Archive -Path $tempZip -DestinationPath $OutputDir -Force
 Remove-Item $tempZip -Force
+Set-Content -Path (Join-Path $targetPath $generatedMarker) -Value "Created by scripts/generate-project.ps1 - regenerating replaces this folder." -Encoding UTF8
 
 # 4. Enrich pom.xml with JaCoCo and OWASP Dependency Check plugins
 Write-Host "`n[4/7] Injecting SDLC Maven Plugins (JaCoCo, OWASP)..." -ForegroundColor Yellow
