@@ -14,3 +14,9 @@ scenarioProject: ""
 maxFixIterations: 5
 maxOfficialCiAttempts: 2
 sameGateStopAfter: 3
+
+# Brownfield gates (copied into the project as sdlc-settings.json by attach-project.ps1)
+diffGuardMaxFiles: 15
+diffGuardMaxLines: 400
+diffGuardMode: warn               # warn | fail
+coverageTolerance: 0.0            # allowed drop of line coverage vs baseline, in percentage points

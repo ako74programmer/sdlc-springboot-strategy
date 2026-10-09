@@ -23,6 +23,7 @@ Repozytorium jest generatorem projektów Spring Boot (Initializr) z wbudowanym p
 | `templates/greenfield/.github/agents/*` | Agenci: sdlc-orchestrator, planner, developer, test-engineer, security-reviewer, quality-fixer |
 | `templates/greenfield/.github/workflows/sdlc.yml` | CI lustrzany do lokalnego pipeline |
 | `templates/brownfield/*` | Osobny szablon dla pobranego kodu (`projects/`): własne kopie `sdlc.ps1`, `jfrog-scan.ps1`, agentów, plus `recon.ps1` i instrukcje brownfield. Używa go `scripts/attach-project.ps1` |
+| `fixtures/*` + `scripts/new-fixture.ps1` | Projekty treningowe brownfield (B1, B2, B3, B6). `expected.md` = treść zadania + rozwiązanie; nie trafia do projektu |
 
 Kolejność bramek w `sdlc.ps1`: Compilation, Tests, VulnerabilityCheck (OWASP, tylko gdy plugin jest w pom), XrayScan (tylko gdy istnieje `jfrog-xray.properties`), SonarQube, SonarQube-QualityGate.
 
@@ -98,7 +99,16 @@ $t=(Get-Content sonar-token.txt -Raw).Trim(); $h=@{Authorization="Bearer $t"}
 - Limity: maks. 5 iteracji; ta sama bramka 3 razy z rzędu oznacza zatrzymanie i raport blokady.
 - Weryfikacja końcowa jest niezależna: sam odczytaj `sdlc-report.json`, nie polegaj na deklaracji agenta. Sprawdź znacznik czasu raportu (`LastWriteTime`) i że `errors` jest puste.
 
-## 5. Znane odchylenia agentów z sesji 2026-10-08
+### 4.7 Brownfield (`projects/`, fixtures)
+
+- Przygotowanie: `.\scripts\new-fixture.ps1 -Name <fixture>` -> `.\scripts\attach-project.ps1 -Project <fixture> -Scenario <typ z expected.md>`. Agent `@sdlc-orchestrator` w projekcie to wersja brownfield (scenariusze `buildfix`, `bugfix`, `sonarfix`).
+- Orchestrator musi: zapisa\u0107 `task.md` z `Scenario:`, uruchomi\u0107 `-Baseline` przed pierwsz\u0105 zmian\u0105 i nie powtarza\u0107 go p\u00f3\u017aniej (sprawd\u017a `createdAt` w `sdlc-baseline.json` wzgl\u0119dem czasu zmian).
+- `bugfix`: w `sdlc-report.json` musi by\u0107 `ReproTest: PASS`; wcze\u015bniej w przebiegu `RED-RECORDED` (nowy test) albo test czerwony w baseline.
+- Odczyt ko\u0144cowy: `gates` (`Regression`, `TestIntegrity` = `PASS`), `metrics.diff.changed`, `delta`, `warnings`. Por\u00f3wnaj z sekcj\u0105 "Kryteria zaliczenia" w `fixtures\<fixture>\expected.md`.
+- `sonarfix` wymaga `sonarMaxOpenIssues: 0` w `sdlc-settings.json` (ustawia `attach-project.ps1 -Scenario sonarfix`).
+- Wszystkie fixtures maj\u0105 ten sam klucz Sonara (`com.example.shop:shop-service`); uruchamiaj je po kolei, nie r\u00f3wnolegle.
+
+## 5. Znane odchylenia agent\u00f3w z sesji 2026-10-08
 
 - Orchestrator zamiast odesłać plan do plannera dopisał nadpisania (z błędnymi nazwami właściwości Mongo) i zakazał zmian w `pom.xml`, co kolidowało z naprawą Xray. Później zniósł zakaz.
 - Przegląd bezpieczeństwa znalazł H-1 (`sonar-token.txt` poza `.gitignore`); orchestrator naprawił tylko projekt. Generator naprawiono osobno.
@@ -122,3 +132,4 @@ $t=(Get-Content sonar-token.txt -Raw).Trim(); $h=@{Authorization="Bearer $t"}
 - Krok Xray w GitHub Actions (`jfrog/setup-jfrog-cli@v4` + `tools/jfrog-scan.ps1 -SkipConfig`), wymaga sekretów `JF_URL` i `JF_ACCESS_TOKEN`.
 - Praca endpointów na działającej aplikacji (testy je pokrywają, ale nie wykonano ręcznych wywołań).
 - Pre-commit hook w wygenerowanym projekcie (`-SkipSonar -SkipOwasp -SkipXray`).
+- Przebieg agentów brownfield (orchestrator -> analyst/build-doctor/bug-hunter/developer/quality-fixer) na fixtures B1, B2, B3, B6. Bramki sprawdzone tylko z ręcznie zasymulowaną poprawką.

@@ -10,6 +10,7 @@
 Param(
     [Parameter(Mandatory = $true)][string]$Project,
     [string]$ProjectsDir,
+    [string]$Scenario,
     [string]$ScenarioConfig = "config/scenario-config.yaml",
     [string]$ProjectConfig = "config/project-config.yaml",
     [string]$Branch = "sdlc-work",
@@ -251,7 +252,28 @@ if (Test-Path $sonarFile) {
 }
 
 # --- 6. Keep our files out of the project's git history -----------------------
-Write-Host "`n[6/6] Git exclude list" -ForegroundColor Yellow
+Write-Host "`n[6/6] Settings and git exclude list" -ForegroundColor Yellow
+if (-not $Scenario) { $Scenario = $scenarioCfg["scenarioType"] }
+function Get-CfgNumber([string]$key, $default) {
+    if ($scenarioCfg[$key] -match '^-?\d+$') { return [int]$scenarioCfg[$key] }
+    if ($scenarioCfg[$key] -match '^-?\d+\.\d+$') { return [double]$scenarioCfg[$key] }
+    return $default
+}
+# Read by tools/sdlc.ps1 and the orchestrator; the project cannot see config/ of this repository
+$sdlcSettings = [ordered]@{
+    scenario              = $Scenario
+    mavenSettings         = $(if ($MavenSettings) { (Resolve-Path $MavenSettings).Path } else { "" })
+    diffGuardMaxFiles     = Get-CfgNumber "diffGuardMaxFiles" 15
+    diffGuardMaxLines     = Get-CfgNumber "diffGuardMaxLines" 400
+    diffGuardMode         = $(if ($scenarioCfg["diffGuardMode"]) { $scenarioCfg["diffGuardMode"] } else { "warn" })
+    coverageTolerance     = Get-CfgNumber "coverageTolerance" 0.0
+    sonarMaxOpenIssues    = $(if ($Scenario -eq "sonarfix") { 0 } else { -1 })
+    maxFixIterations      = Get-CfgNumber "maxFixIterations" 5
+    maxOfficialCiAttempts = Get-CfgNumber "maxOfficialCiAttempts" 2
+    sameGateStopAfter     = Get-CfgNumber "sameGateStopAfter" 3
+}
+$sdlcSettings | ConvertTo-Json | Set-Content -Path (Join-Path $projectPath "sdlc-settings.json") -Encoding UTF8
+Write-Host "    sdlc-settings.json written (scenario: $(if ($Scenario) { $Scenario } else { 'not set' }))" -ForegroundColor Green
 $manifest = [ordered]@{
     attachedAt  = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
     project     = $Project
@@ -267,7 +289,8 @@ if ($isGit) {
         $excludeFile = git rev-parse --git-path info/exclude
         New-Item -ItemType Directory -Path (Split-Path $excludeFile -Parent) -Force | Out-Null
         $existing = @(if (Test-Path $excludeFile) { Get-Content $excludeFile })
-        $wanted = @($added) + @("sdlc-attach.json", "sdlc-report.json", "recon-report.json", "sdlc-run.log", "*.token", "sonar-token.txt")
+        $wanted = @($added) + @("sdlc-attach.json", "sdlc-settings.json", "sdlc-report.json", "sdlc-baseline.json", "sdlc-repro.json",
+            "recon-report.json", "sdlc-run.log", "task.md", "analysis.md", "plan.md", "security-review.md", "*.token", "sonar-token.txt")
         $missing = @($wanted | Select-Object -Unique | ForEach-Object { "/" + $_.TrimStart('/') } |
             Where-Object { $existing -notcontains $_ })
         if ($missing.Count -gt 0) {

@@ -182,6 +182,12 @@ Do ćwiczeń potrzebne projekty z celowo wstrzykniętymi problemami. Bez nich ni
 
 Każda faza kończy się aktualizacją `AGENTS.md` (nowe pułapki, nowa procedura monitorowania) oraz sekcji "Co jeszcze nie zostało zweryfikowane".
 
+### Status (2026-10-09)
+
+- **Faza 1: zrobiona** (commit `c8ca5c1`).
+- **Faza 2: zrobiona po stronie narzędzi.** Brownfieldowy `sdlc.ps1`: `-Baseline`, bramki `Regression`, `TestIntegrity`, `DiffGuard`, `ReproTest`, `SonarQube-Issues` (dla `sonarfix`). Agenci brownfield: `analyst`, `build-doctor`, `bug-hunter`; przepisani `sdlc-orchestrator`, `developer`, `quality-fixer`. Fixtures B1, B2, B3, B6 + `scripts/new-fixture.ps1`. Bramki sprawdzone na wszystkich czterech fixtures z ręcznie zasymulowaną poprawką (także próby oszukania: osłabiony test, `@Disabled`, `NOSONAR`, test nigdy nieczerwony). Greenfield bez zmian.
+- **Niezweryfikowane:** przebieg agentów (orchestrator w osobnym oknie VS Code) na fixtures.
+
 ## 6. Ryzyka i decyzje do podjęcia
 
 | Ryzyko | Konsekwencja | Propozycja |

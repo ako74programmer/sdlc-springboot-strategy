@@ -1,18 +1,40 @@
 # ==============================================================================
-# LOCAL SDLC PIPELINE - Quality & Security Gates
+# LOCAL SDLC PIPELINE (brownfield) - Quality & Security Gates
+#   .\tools\sdlc.ps1 -Baseline           record the starting state (sdlc-baseline.json)
+#   .\tools\sdlc.ps1                     gates + Regression/TestIntegrity/DiffGuard against the baseline
+#   .\tools\sdlc.ps1 -ReproTest Cls#m     also prove a bug: the test must be red first, green after the fix
 # ==============================================================================
 Param(
     [switch]$SkipSonar,
     [switch]$SkipOwasp,
     [switch]$SkipXray,
+    [switch]$Baseline,
+    [string]$ReproTest,
     [string]$MavenSettings = $env:MAVEN_SETTINGS,
     [string]$SonarPluginVersion = "5.8.0.7211"
 )
 
 $ErrorActionPreference = "Continue"
 $reportFile = "sdlc-report.json"
+$baselineFile = "sdlc-baseline.json"
+$reproFile = "sdlc-repro.json"
 # Downloaded projects do not always ship the Maven Wrapper
 $mvn = if (Test-Path "mvnw.cmd") { ".\mvnw.cmd" } else { "mvn" }
+
+# Written by attach-project.ps1; defaults apply when the file is missing
+$settings = @{
+    scenario           = ""
+    mavenSettings      = ""
+    diffGuardMaxFiles  = 15
+    diffGuardMaxLines  = 400
+    diffGuardMode      = "warn"
+    coverageTolerance  = 0.0
+    sonarMaxOpenIssues = -1
+}
+if (Test-Path "sdlc-settings.json") {
+    foreach ($p in (Get-Content "sdlc-settings.json" -Raw | ConvertFrom-Json).PSObject.Properties) { $settings[$p.Name] = $p.Value }
+}
+if (-not $MavenSettings) { $MavenSettings = $settings.mavenSettings }
 
 # Empty = Maven resolves artifacts with its default ~/.m2/settings.xml
 $mvnSettingsArgs = @()
@@ -27,14 +49,20 @@ if ($MavenSettings) {
 $gateStatus = @{
     timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
     status    = "PASSED"
+    scenario  = $settings.scenario
     gates     = @{}
     metrics   = @{
         tests    = @{ total = 0; passed = 0; failed = 0; skipped = 0; errors = 0 }
         coverage = @{ line = $null; branch = $null }
+        sonar    = @{ openIssues = $null }
     }
+    baseline  = $null
+    delta     = $null
     errors    = @()
     warnings  = @()
 }
+# "package.Class#method" -> passed | failed | skipped
+$testCases = @{}
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "          LOCAL SDLC PIPELINE           " -ForegroundColor Cyan
@@ -71,22 +99,31 @@ function Execute-Gate {
     }
 }
 
-# Helper: Parse Surefire test results from XML reports
+# Helper: Parse Surefire test results (all modules), including per-test outcome
 function Parse-TestResults {
-    $surefireDir = "target/surefire-reports"
-    if (-not (Test-Path $surefireDir)) { return }
-    
+    $suites = @(Get-ChildItem -Path . -Recurse -File -Filter "TEST-*.xml" -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match '[\\/]target[\\/]surefire-reports[\\/]' })
+    if ($suites.Count -eq 0) { return }
+
     $totalTests = 0; $totalFailed = 0; $totalErrors = 0; $totalSkipped = 0
-    
-    Get-ChildItem -Path $surefireDir -Filter "TEST-*.xml" -ErrorAction SilentlyContinue | ForEach-Object {
+
+    foreach ($file in $suites) {
         try {
-            [xml]$xml = Get-Content $_.FullName
+            [xml]$xml = Get-Content $file.FullName -Raw
             $suite = $xml.testsuite
             $totalTests   += [int]$suite.tests
             $totalFailed  += [int]$suite.failures
             $totalErrors  += [int]$suite.errors
             $totalSkipped += [int]$suite.skipped
-        } catch {}
+            foreach ($tc in @($suite.SelectNodes("testcase"))) {
+                $state = if ($tc.SelectSingleNode("failure") -or $tc.SelectSingleNode("error")) { "failed" }
+                         elseif ($tc.SelectSingleNode("skipped")) { "skipped" }
+                         else { "passed" }
+                $script:testCases["$($tc.classname)#$($tc.name)"] = $state
+            }
+        } catch {
+            $script:gateStatus.warnings += "Could not parse $($file.Name)"
+        }
     }
     
     $script:gateStatus.metrics.tests = @{
@@ -244,11 +281,19 @@ $compileResult = Execute-Gate -GateName "Compilation" -Command {
 # GATE 2: Unit & Integration Tests
 # ============================================
 if ($compileResult.Success) {
+    # Baseline: failing legacy tests must not stop the JaCoCo report (bound to verify)
+    $testArgs = @()
+    if ($Baseline) { $testArgs = @("-Dmaven.test.failure.ignore=true") }
     $testResult = Execute-Gate -GateName "Tests" -Command {
-        & $mvn @mvnSettingsArgs verify
+        & $mvn @mvnSettingsArgs verify @testArgs
     }
     Parse-TestResults
     Parse-Coverage
+    $t = $script:gateStatus.metrics.tests
+    if ($Baseline -and ($t.failed + $t.errors) -gt 0) {
+        $script:gateStatus.gates["Tests"] = "FAIL"
+        $script:gateStatus.status = "FAILED"
+    }
 } else {
     $script:gateStatus.gates["Tests"] = "SKIPPED"
 }
@@ -369,6 +414,36 @@ if (-not $SkipSonar) {
                 $script:gateStatus.gates["SonarQube-QualityGate"] = "UNKNOWN"
                 Write-Host "[GATE WARN] SonarQube Quality Gate status could not be determined" -ForegroundColor DarkYellow
             }
+
+            # Open issues: needed for the baseline/Regression and for sonarfix scenarios (QG checks new code only)
+            try {
+                $projectKey = [uri]::EscapeDataString((Get-SonarProperty "sonar.projectKey"))
+                $issues = Invoke-RestMethod -Uri "$sonarUrl/api/issues/search?componentKeys=$projectKey&resolved=false&ps=100" `
+                    -Headers @{ Authorization = "Bearer $sonarToken" } -ErrorAction Stop
+                $script:gateStatus.metrics.sonar.openIssues = [int]$issues.total
+                Write-Host "    Open issues: $($issues.total)" -ForegroundColor Gray
+
+                if ([int]$settings.sonarMaxOpenIssues -ge 0) {
+                    if ([int]$issues.total -gt [int]$settings.sonarMaxOpenIssues) {
+                        $script:gateStatus.gates["SonarQube-Issues"] = "FAIL"
+                        $script:gateStatus.status = "FAILED"
+                        Write-Host "[GATE FAIL] SonarQube-Issues ($($issues.total) > $($settings.sonarMaxOpenIssues))" -ForegroundColor Red
+                        foreach ($i in @($issues.issues)) {
+                            $script:gateStatus.errors += @{
+                                gate    = "SonarQube-Issues"
+                                summary = "[$($i.severity) $($i.type)] $($i.rule)"
+                                details = "$($i.component -replace '^[^:]*:[^:]*:', ''):$($i.line) $($i.message)"
+                            }
+                        }
+                    } else {
+                        $script:gateStatus.gates["SonarQube-Issues"] = "PASS"
+                        Write-Host "[GATE PASS] SonarQube-Issues" -ForegroundColor Green
+                    }
+                }
+            } catch {
+                Write-Host "    Warning: could not read open issues: $_" -ForegroundColor DarkYellow
+                $script:gateStatus.warnings += "Could not read SonarQube open issues: $_"
+            }
         }
     }
 } else {
@@ -376,9 +451,271 @@ if (-not $SkipSonar) {
 }
 
 # ============================================
+# Baseline facts (shared by -Baseline and the comparison gates)
+# ============================================
+function Get-RelativePath([string]$fullName) {
+    return $fullName.Substring((Get-Location).Path.Length + 1).Replace('\', '/')
+}
+
+# Per test file: test method names, @Disabled count, assertion count - used to detect weakened tests
+function Get-TestFileFacts {
+    $facts = @{}
+    $files = Get-ChildItem -Path . -Recurse -File -Include *.java, *.kt -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match '[\\/]src[\\/]test[\\/]' -and $_.FullName -notmatch '[\\/]target[\\/]' }
+    foreach ($f in $files) {
+        $lines = @(Get-Content $f.FullName)
+        $methods = @()
+        $pending = $false
+        foreach ($l in $lines) {
+            if ($l -match '^\s*@(Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b') { $pending = $true; continue }
+            if ($pending -and $l -notmatch '^\s*@' -and $l -match '\b(\w+)\s*\(') { $methods += $matches[1]; $pending = $false }
+        }
+        $text = $lines -join "`n"
+        $facts[(Get-RelativePath $f.FullName)] = [ordered]@{
+            methods  = $methods
+            disabled = ([regex]::Matches($text, '@(?:[\w.]+\.)?(Disabled\w*|Ignore)\b')).Count
+            asserts  = ([regex]::Matches($text, '\b(assert\w*|verify\w*|expect\w*|andExpect|fail)\s*\(')).Count
+        }
+    }
+    return $facts
+}
+
+function Get-SuppressionCount {
+    $count = 0
+    $files = Get-ChildItem -Path . -Recurse -File -Include *.java, *.kt -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match '[\\/]src[\\/]' -and $_.FullName -notmatch '[\\/]target[\\/]' }
+    foreach ($f in $files) {
+        $count += ([regex]::Matches("$(Get-Content $f.FullName -Raw)", 'NOSONAR|@SuppressWarnings')).Count
+    }
+    return $count
+}
+
+function Get-FileHashOrNull([string]$path) {
+    if (Test-Path $path) { return (Get-FileHash $path -Algorithm SHA256).Hash }
+    return $null
+}
+
+function Test-GitRepo {
+    $null = git rev-parse --is-inside-work-tree 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Add-GateError([string]$gate, [string]$summary, [string]$details) {
+    $script:gateStatus.errors += @{ gate = $gate; summary = $summary; details = $details }
+}
+
+function Set-Gate([string]$gate, [bool]$ok) {
+    $script:gateStatus.gates[$gate] = if ($ok) { "PASS" } else { "FAIL" }
+    if (-not $ok) { $script:gateStatus.status = "FAILED" }
+    Write-Host "$(if ($ok) { '[GATE PASS]' } else { '[GATE FAIL]' }) $gate" -ForegroundColor $(if ($ok) { "Green" } else { "Red" })
+}
+
+if ($Baseline) {
+    # ============================================
+    # -Baseline: record the starting point; failing legacy tests are recorded, not judged
+    # ============================================
+    $gitBase = $null
+    if (Test-GitRepo) {
+        # stash create snapshots tracked changes (e.g. JaCoCo added by attach) without touching the working tree
+        $gitBase = git stash create 2>$null
+        if (-not $gitBase) { $gitBase = git rev-parse HEAD 2>$null }
+        if ($gitBase) { git update-ref refs/sdlc/baseline $gitBase 2>$null }
+    }
+    $baselineData = [ordered]@{
+        createdAt           = $script:gateStatus.timestamp
+        gitBase             = $gitBase
+        compiles            = ($script:gateStatus.gates["Compilation"] -eq "PASS")
+        tests               = $script:gateStatus.metrics.tests
+        cases               = $testCases
+        coverage            = $script:gateStatus.metrics.coverage
+        sonarOpenIssues     = $script:gateStatus.metrics.sonar.openIssues
+        testFiles           = Get-TestFileFacts
+        suppressions        = Get-SuppressionCount
+        sonarPropertiesHash = Get-FileHashOrNull "sonar-project.properties"
+    }
+    $baselineData | ConvertTo-Json -Depth 6 | Set-Content -Path $baselineFile -Encoding UTF8
+    if (Test-Path $reproFile) { Remove-Item $reproFile }
+    $failingNow = @($testCases.GetEnumerator() | Where-Object { $_.Value -eq "failed" }).Count
+    Write-Host "`n[BASELINE] Recorded $baselineFile (git: $(if ($gitBase) { $gitBase.Substring(0, 8) } else { 'n/a' }), tests: $($testCases.Count), failing: $failingNow, coverage: $($script:gateStatus.metrics.coverage.line), sonar issues: $($script:gateStatus.metrics.sonar.openIssues))" -ForegroundColor Cyan
+    $script:gateStatus.baseline = @{ recorded = $true; file = $baselineFile }
+} elseif (Test-Path $baselineFile) {
+    $base = Get-Content $baselineFile -Raw | ConvertFrom-Json
+    $baseCases = @{}
+    if ($base.cases) { foreach ($p in $base.cases.PSObject.Properties) { $baseCases[$p.Name] = $p.Value } }
+    $script:gateStatus.baseline = @{ recorded = $true; createdAt = $base.createdAt; gitBase = $base.gitBase }
+
+    # ============================================
+    # GATE: Regression - nothing that worked before may break
+    # ============================================
+    if ($script:gateStatus.gates["Tests"] -in @("PASS", "FAIL")) {
+        $ok = $true
+        foreach ($name in $baseCases.Keys) {
+            if ($baseCases[$name] -eq "passed" -and $testCases.ContainsKey($name) -and $testCases[$name] -ne "passed") {
+                $ok = $false
+                Add-GateError "Regression" "Test passed in baseline, now $($testCases[$name])" $name
+            }
+        }
+        $covNow = $script:gateStatus.metrics.coverage.line
+        $covBase = $base.coverage.line
+        if ($null -ne $covNow -and $null -ne $covBase -and [double]$covNow -lt ([double]$covBase - [double]$settings.coverageTolerance)) {
+            $ok = $false
+            Add-GateError "Regression" "Line coverage dropped" "Baseline: $covBase%, now: $covNow%"
+        }
+        $sonarNow = $script:gateStatus.metrics.sonar.openIssues
+        if ($null -ne $sonarNow -and $null -ne $base.sonarOpenIssues -and [int]$sonarNow -gt [int]$base.sonarOpenIssues) {
+            $ok = $false
+            Add-GateError "Regression" "More open SonarQube issues than in baseline" "Baseline: $($base.sonarOpenIssues), now: $sonarNow"
+        }
+        Set-Gate "Regression" $ok
+    } else {
+        $script:gateStatus.gates["Regression"] = "SKIPPED"
+    }
+
+    # ============================================
+    # GATE: TestIntegrity - tests must not be deleted, disabled or weakened; no new suppressions
+    # ============================================
+    $ok = $true
+    $nowFacts = Get-TestFileFacts
+    if ($base.testFiles) {
+        foreach ($p in $base.testFiles.PSObject.Properties) {
+            $file = $p.Name; $was = $p.Value
+            if (-not $nowFacts.ContainsKey($file)) {
+                if (@($was.methods).Count -gt 0) {
+                    $ok = $false
+                    Add-GateError "TestIntegrity" "Test file deleted" "$file ($(@($was.methods).Count) tests)"
+                }
+                continue
+            }
+            $now = $nowFacts[$file]
+            $missing = @(@($was.methods) | Where-Object { @($now.methods) -notcontains $_ })
+            if ($missing.Count -gt 0) {
+                $ok = $false
+                Add-GateError "TestIntegrity" "Test methods removed or renamed" "${file}: $($missing -join ', ')"
+            }
+            if ($now.disabled -gt $was.disabled) {
+                $ok = $false
+                Add-GateError "TestIntegrity" "Tests disabled" "${file}: @Disabled/@Ignore $($was.disabled) -> $($now.disabled)"
+            }
+            if ($now.asserts -lt $was.asserts) {
+                $ok = $false
+                Add-GateError "TestIntegrity" "Fewer assertions than in baseline" "${file}: $($was.asserts) -> $($now.asserts)"
+            }
+        }
+    }
+    $suppressNow = Get-SuppressionCount
+    if ($suppressNow -gt [int]$base.suppressions) {
+        $ok = $false
+        Add-GateError "TestIntegrity" "New NOSONAR/@SuppressWarnings" "Baseline: $($base.suppressions), now: $suppressNow"
+    }
+    if ((Get-FileHashOrNull "sonar-project.properties") -ne $base.sonarPropertiesHash) {
+        $ok = $false
+        Add-GateError "TestIntegrity" "sonar-project.properties changed" "Analysis scope or exclusions must not change to silence findings"
+    }
+    Set-Gate "TestIntegrity" $ok
+
+    # ============================================
+    # GATE: DiffGuard - size of the change against the baseline snapshot
+    # ============================================
+    if ($base.gitBase -and (Test-GitRepo)) {
+        $changed = @{}
+        foreach ($line in @(git diff --numstat $base.gitBase 2>$null)) {
+            $parts = $line -split "`t"
+            if ($parts.Count -ge 3) {
+                $n = 0
+                if ($parts[0] -match '^\d+$') { $n += [int]$parts[0] }
+                if ($parts[1] -match '^\d+$') { $n += [int]$parts[1] }
+                $changed[$parts[2]] = $n
+            }
+        }
+        foreach ($f in @(git ls-files --others --exclude-standard 2>$null)) {
+            if ($f -match '^(sdlc-|recon-report)' -or -not (Test-Path $f -PathType Leaf)) { continue }
+            $changed[$f] = @(Get-Content $f -ErrorAction SilentlyContinue).Count
+        }
+        $fileCount = $changed.Count
+        $lineCount = ($changed.Values | Measure-Object -Sum).Sum
+        if (-not $lineCount) { $lineCount = 0 }
+        $script:gateStatus.metrics.diff = @{ files = $fileCount; lines = $lineCount; changed = @($changed.Keys | Sort-Object) }
+        Write-Host "`n    Diff vs baseline: $fileCount files, $lineCount lines" -ForegroundColor Gray
+
+        if ($changed.ContainsKey("pom.xml")) {
+            $script:gateStatus.warnings += "DiffGuard: pom.xml changed - expected for vulnfix/migration/buildfix, suspicious otherwise"
+        }
+        $testsTouched = @($changed.Keys | Where-Object { $_ -match '(^|/)src/test/' -and $base.testFiles.PSObject.Properties.Name -contains $_ })
+        if ($testsTouched.Count -gt 0) {
+            $script:gateStatus.warnings += "DiffGuard: existing test files modified: $($testsTouched -join ', ')"
+        }
+
+        $tooBig = ($fileCount -gt [int]$settings.diffGuardMaxFiles) -or ($lineCount -gt [int]$settings.diffGuardMaxLines)
+        if ($tooBig) {
+            $msg = "Change is larger than the limit: $fileCount files (max $($settings.diffGuardMaxFiles)), $lineCount lines (max $($settings.diffGuardMaxLines))"
+            if ($settings.diffGuardMode -eq "fail") {
+                Add-GateError "DiffGuard" "Change too large" $msg
+                Set-Gate "DiffGuard" $false
+            } else {
+                $script:gateStatus.warnings += "DiffGuard: $msg"
+                Set-Gate "DiffGuard" $true
+            }
+        } else {
+            Set-Gate "DiffGuard" $true
+        }
+    } else {
+        $script:gateStatus.gates["DiffGuard"] = "SKIPPED"
+    }
+
+    $script:gateStatus.delta = @{
+        testsPassed     = $script:gateStatus.metrics.tests.passed - [int]$base.tests.passed
+        coverageLine    = if ($null -ne $script:gateStatus.metrics.coverage.line -and $null -ne $base.coverage.line) { [math]::Round([double]$script:gateStatus.metrics.coverage.line - [double]$base.coverage.line, 1) } else { $null }
+        sonarOpenIssues = if ($null -ne $script:gateStatus.metrics.sonar.openIssues -and $null -ne $base.sonarOpenIssues) { [int]$script:gateStatus.metrics.sonar.openIssues - [int]$base.sonarOpenIssues } else { $null }
+    }
+} else {
+    Write-Host "`n    No $baselineFile - Regression/TestIntegrity/DiffGuard skipped. Run .\tools\sdlc.ps1 -Baseline before changing code." -ForegroundColor DarkYellow
+    $script:gateStatus.warnings += "No baseline recorded - Regression, TestIntegrity and DiffGuard were skipped"
+    foreach ($g in @("Regression", "TestIntegrity", "DiffGuard")) { $script:gateStatus.gates[$g] = "SKIPPED" }
+}
+
+# ============================================
+# GATE: ReproTest - a bug fix is proven by a test that was red before and is green now
+# ============================================
+if ($ReproTest -and -not $Baseline) {
+    $match = @($testCases.Keys | Where-Object { $_ -eq $ReproTest -or $_.EndsWith(".$ReproTest") })
+    if ($match.Count -ne 1) {
+        Add-GateError "ReproTest" "Reproduction test not found (or ambiguous)" "'$ReproTest' matched $($match.Count) executed tests. Use Class#method or package.Class#method."
+        Set-Gate "ReproTest" $false
+    } else {
+        $id = $match[0]
+        $state = $testCases[$id]
+        $red = $false
+        if (Test-Path $reproFile) {
+            $rec = Get-Content $reproFile -Raw | ConvertFrom-Json
+            $red = ($rec.test -eq $id -and $rec.red)
+        }
+        if (-not $red -and (Test-Path $baselineFile)) {
+            $bc = (Get-Content $baselineFile -Raw | ConvertFrom-Json).cases
+            if ($bc -and $bc.PSObject.Properties.Name -contains $id -and $bc.$id -eq "failed") { $red = $true }
+        }
+
+        if (-not $red) {
+            if ($state -eq "failed") {
+                @{ test = $id; red = $true; recordedAt = $script:gateStatus.timestamp } | ConvertTo-Json | Set-Content $reproFile -Encoding UTF8
+                Add-GateError "ReproTest" "Bug reproduced - test is red as expected; now fix the production code" $id
+                $script:gateStatus.gates["ReproTest"] = "RED-RECORDED"
+                $script:gateStatus.status = "FAILED"
+                Write-Host "[GATE RED ] ReproTest recorded red: $id" -ForegroundColor Yellow
+            } else {
+                Add-GateError "ReproTest" "Test does not reproduce the bug - it was never red" "$id is $state; a reproduction test must fail before the fix"
+                Set-Gate "ReproTest" $false
+            }
+        } else {
+            if ($state -ne "passed") { Add-GateError "ReproTest" "Bug not fixed - reproduction test still $state" $id }
+            Set-Gate "ReproTest" ($state -eq "passed")
+        }
+    }
+}
+
+# ============================================
 # Output Summary
 # ============================================
-$script:gateStatus | ConvertTo-Json -Depth 5 | Set-Content -Path $reportFile -Encoding UTF8
+$script:gateStatus | ConvertTo-Json -Depth 6 | Set-Content -Path $reportFile -Encoding UTF8
 
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "          GATE SUMMARY                  " -ForegroundColor Cyan
@@ -389,12 +726,14 @@ foreach ($gate in $script:gateStatus.gates.GetEnumerator()) {
         "PASS"    { "Green" }
         "FAIL"    { "Red" }
         "SKIPPED" { "DarkYellow" }
+        "RED-RECORDED" { "Yellow" }
         default   { "Gray" }
     }
     $icon = switch ($gate.Value) {
         "PASS"    { "[OK]  " }
         "FAIL"    { "[FAIL]" }
         "SKIPPED" { "[SKIP]" }
+        "RED-RECORDED" { "[RED] " }
         default   { "[????]" }
     }
     Write-Host "  $icon $($gate.Key)" -ForegroundColor $color
@@ -410,7 +749,10 @@ if ($covLine) {
 }
 
 Write-Host "`n========================================" -ForegroundColor Cyan
-if ($script:gateStatus.status -eq "PASSED") {
+if ($Baseline) {
+    Write-Host "  BASELINE RECORDED: $baselineFile       " -ForegroundColor Cyan
+    Write-Host "  (gate failures above describe the starting state)" -ForegroundColor Gray
+} elseif ($script:gateStatus.status -eq "PASSED") {
     Write-Host "  RESULT: ALL GATES PASSED              " -ForegroundColor Green
 } else {
     Write-Host "  RESULT: PIPELINE FAILED               " -ForegroundColor Red
@@ -418,7 +760,7 @@ if ($script:gateStatus.status -eq "PASSED") {
 }
 Write-Host "========================================" -ForegroundColor Cyan
 
-if ($script:gateStatus.status -eq "PASSED") {
+if ($Baseline -or $script:gateStatus.status -eq "PASSED") {
     exit 0
 } else {
     exit 1

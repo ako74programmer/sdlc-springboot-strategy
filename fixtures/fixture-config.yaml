@@ -1,0 +1,25 @@
+# Fixed generator input for training fixtures (scripts/new-fixture.ps1).
+# Independent of project-config.yaml so fixture sources keep compiling when that file changes.
+project:
+  type: maven-project
+  language: java
+  bootVersion: 4.1.1
+  groupId: com.example.shop
+  artifactId: shop-service
+  name: shop-service
+  description: "Legacy shop service (training fixture)"
+  packageName: com.example.shop
+  packaging: jar
+  javaVersion: 25
+
+dependencies:
+  - web
+  - data-mongodb
+  - validation
+  - actuator
+
+sdlc:
+  enableSonarQube: false
+  enableOwaspCheck: false
+  enableXray: false
+  jacocoVersion: 0.8.15

@@ -50,7 +50,7 @@ try {
         if (-not $Project) {
             Write-Error "Scenario '$Scenario' needs -Project <folder in projects/> (or scenarioProject in $ScenarioConfig)."
         }
-        & (Join-Path $PSScriptRoot "attach-project.ps1") -Project $Project
+        & (Join-Path $PSScriptRoot "attach-project.ps1") -Project $Project -Scenario $Scenario
     }
 } finally {
     Pop-Location

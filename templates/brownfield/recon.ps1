@@ -169,8 +169,8 @@ if ($suites.Count -gt 0) {
             [xml]$x = Get-Content $s.FullName -Raw
             $total += [int]$x.testsuite.tests; $failed += [int]$x.testsuite.failures
             $errorsCount += [int]$x.testsuite.errors; $skipped += [int]$x.testsuite.skipped
-            foreach ($tc in @($x.testsuite.testcase)) {
-                if ($tc.failure -or $tc.error) { $report.results.failingTests += "$($tc.classname)#$($tc.name)" }
+            foreach ($tc in @($x.testsuite.SelectNodes("testcase"))) {
+                if ($tc.SelectSingleNode("failure") -or $tc.SelectSingleNode("error")) { $report.results.failingTests += "$($tc.classname)#$($tc.name)" }
             }
         } catch {
             $report.warnings += "Could not parse $($s.Name)"

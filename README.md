@@ -105,7 +105,9 @@ Dostosuj parametry w `config/project-config.yaml`, a następnie uruchom:
 ```
 Nowy projekt zostanie utworzony w katalogu `generated-projects/springboot-sdlc-demo`.
 
-**Istniejący projekt (brownfield)**: pobierz kod do `projects/<nazwa>` i uruchom `.\scripts\attach-project.ps1 -Project <nazwa>` (albo `.\scripts\start-scenario.ps1 -Scenario bugfix -Project <nazwa>`). Skrypt tworzy gałąź `sdlc-work`, dodaje tylko brakujące narzędzia (wpisane do `.git/info/exclude`), dopisuje JaCoCo do `pom.xml` (sam pomiar), a na końcu uruchamia `tools\recon.ps1` i zapisuje `recon-report.json`. Generator nigdy nie dotyka `projects/`.  
+**Istniejący projekt (brownfield)**: pobierz kod do `projects/<nazwa>` i uruchom `.\scripts\attach-project.ps1 -Project <nazwa>` (albo `.\scripts\start-scenario.ps1 -Scenario bugfix -Project <nazwa>`). Skrypt tworzy gałąź `sdlc-work`, dodaje tylko brakujące narzędzia (wpisane do `.git/info/exclude`), dopisuje JaCoCo do `pom.xml` (sam pomiar), a na końcu uruchamia `tools\recon.ps1` i zapisuje `recon-report.json`. Generator nigdy nie dotyka `projects/`.
+
+**Brownfield - bramki porównawcze**: przed pierwszą zmianą `.\tools\sdlc.ps1 -Baseline` (zapis `sdlc-baseline.json`), potem każdy przebieg sprawdza `Regression` (żaden wcześniej zielony test nie pada, pokrycie i liczba problemów Sonara nie gorsze), `TestIntegrity` (brak usuniętych/wyłączonych/osłabionych testów, `NOSONAR`, zmian w `sonar-project.properties`), `DiffGuard` (rozmiar zmiany) i opcjonalnie `ReproTest` (`-ReproTest Klasa#metoda`: test czerwony przed poprawką, zielony po niej). Projekty treningowe: `.\scripts\new-fixture.ps1 -Name b2-failing-test` (lista w `fixtures/`).  
 Generator automatycznie uruchomi smoke test kompilacji.
 
 **Repozytorium artefaktów (Maven `settings.xml`)**: Maven domyślnie używa `~/.m2/settings.xml` — tam skonfigurowane jest firmowe Artifactory i to wystarcza. Jeśli plik leży gdzie indziej, wskaż go przez `maven.settingsFile` w configu, parametr `-MavenSettings` lub zmienną `MAVEN_SETTINGS`; generator i `tools/sdlc.ps1` przekażą go do Mavena jako `-s`.
