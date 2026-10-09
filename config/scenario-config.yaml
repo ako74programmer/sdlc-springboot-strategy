@@ -1,0 +1,16 @@
+# Battle scenario settings (brownfield support).
+# Separate from project-config.yaml on purpose: the generator's flat parser already uses keys like "type".
+# Keys must stay unique across this file.
+
+# Folder with code downloaded by the user (never touched by generate-project.ps1)
+projectsDir: projects
+
+# greenfield | buildfix | bugfix | sonarfix | vulnfix | refactor | feature | tests | migration | review
+scenarioType: greenfield
+# Folder name inside projectsDir (ignored for greenfield)
+scenarioProject: ""
+
+# Limits (used by the orchestrator from Phase 2 on)
+maxFixIterations: 5
+maxOfficialCiAttempts: 2
+sameGateStopAfter: 3

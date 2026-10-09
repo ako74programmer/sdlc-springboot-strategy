@@ -1,6 +1,9 @@
 # Generated projects output directory
 generated-projects/
 
+# Downloaded battle projects (own git repos)
+projects/
+
 # Sensitive tokens & local runtime files
 sonar-token.txt
 *.token

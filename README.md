@@ -41,22 +41,25 @@ Główna zasada architektoniczna:
 ```text
 sdlc-springboot-strategy/
 ├── config/
-│   └── project-config.yaml       # Plik konfiguracyjny projektu + SDLC
+│   ├── project-config.yaml       # Plik konfiguracyjny projektu + SDLC
+│   └── scenario-config.yaml      # Scenariusz bitwy, katalog projects/, limity
 ├── templates/
-│   ├── sdlc.ps1                  # Lokalny skrypt bramek jakościowych
-│   ├── sonar-project.properties  # Szablon konfiguracji SonarQube
-│   └── .github/
+│   ├── greenfield/               # Szablon generatora (kod od zera)
+│   │   ├── sdlc.ps1              # Lokalny skrypt bramek jakościowych
+│   │   ├── jfrog-scan.ps1        # Bramka JFrog Xray
+│   │   ├── sonar-project.properties
+│   │   └── .github/              # copilot-instructions, agents/, workflows/sdlc.yml
+│   └── brownfield/               # Szablon dla pobranego kodu (projects/)
+│       ├── sdlc.ps1              # Własna kopia bramek (mvn, gdy brak wrappera)
+│       ├── recon.ps1             # Rozpoznanie projektu -> recon-report.json
+│       ├── jfrog-scan.ps1
+│       ├── sonar-project.properties
 │       ├── copilot-instructions.md
-│       ├── agents/
-│       │   ├── planner.agent.md
-│       │   ├── developer.agent.md
-│       │   ├── test-engineer.agent.md
-│       │   ├── security-reviewer.agent.md
-│       │   └── quality-fixer.agent.md
-│       └── workflows/
-│           └── sdlc.yml          # CI pipeline (GitHub Actions)
+│       └── agents/
 ├── scripts/
 │   ├── generate-project.ps1      # Główny skrypt generatora projektu
+│   ├── attach-project.ps1        # Podpięcie pobranego projektu z projects/
+│   ├── start-scenario.ps1        # Wspólny punkt wejścia (greenfield / brownfield)
 │   ├── start-sonarqube.ps1       # Start lokalnej dystrybucji SonarQube
 │   ├── start-mongo.ps1           # Start lokalnego MongoDB (bez Dockera)
 │   └── setup-sonar-token.ps1     # Generator tokena SonarQube (z auto-wait)
@@ -100,7 +103,9 @@ Dostosuj parametry w `config/project-config.yaml`, a następnie uruchom:
 ```powershell
 .\scripts\generate-project.ps1
 ```
-Nowy projekt zostanie utworzony w katalogu `generated-projects/springboot-sdlc-demo`.  
+Nowy projekt zostanie utworzony w katalogu `generated-projects/springboot-sdlc-demo`.
+
+**Istniejący projekt (brownfield)**: pobierz kod do `projects/<nazwa>` i uruchom `.\scripts\attach-project.ps1 -Project <nazwa>` (albo `.\scripts\start-scenario.ps1 -Scenario bugfix -Project <nazwa>`). Skrypt tworzy gałąź `sdlc-work`, dodaje tylko brakujące narzędzia (wpisane do `.git/info/exclude`), dopisuje JaCoCo do `pom.xml` (sam pomiar), a na końcu uruchamia `tools\recon.ps1` i zapisuje `recon-report.json`. Generator nigdy nie dotyka `projects/`.  
 Generator automatycznie uruchomi smoke test kompilacji.
 
 **Repozytorium artefaktów (Maven `settings.xml`)**: Maven domyślnie używa `~/.m2/settings.xml` — tam skonfigurowane jest firmowe Artifactory i to wystarcza. Jeśli plik leży gdzie indziej, wskaż go przez `maven.settingsFile` w configu, parametr `-MavenSettings` lub zmienną `MAVEN_SETTINGS`; generator i `tools/sdlc.ps1` przekażą go do Mavena jako `-s`.

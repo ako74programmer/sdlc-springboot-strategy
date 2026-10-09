@@ -8,6 +8,7 @@ Param(
 )
 
 $ErrorActionPreference = "Stop"
+$templateDir = "templates/greenfield"
 
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "   Spring Boot SDLC Project Template Generator    " -ForegroundColor Cyan
@@ -225,7 +226,7 @@ Write-Host "`n[5/7] Injecting SDLC Tools, SonarQube & Agent Rules..." -Foregroun
 # Copy tools/sdlc.ps1
 $toolsDir = Join-Path $targetPath "tools"
 New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
-$sdlcScriptSource = "templates/sdlc.ps1"
+$sdlcScriptSource = "$templateDir/sdlc.ps1"
 if (Test-Path $sdlcScriptSource) {
     Copy-Item $sdlcScriptSource -Destination (Join-Path $toolsDir "sdlc.ps1") -Force
     Write-Host "    Copied tools/sdlc.ps1" -ForegroundColor Green
@@ -234,7 +235,7 @@ if (Test-Path $sdlcScriptSource) {
 # JFrog Xray gate: tools/jfrog-scan.ps1 + jfrog-xray.properties (its presence enables the gate)
 if ($enableXray -eq "true") {
     if (-not $xrayUrl) { Write-Error "enableXray is true but xrayUrl is empty in $ConfigFile" }
-    Copy-Item "templates/jfrog-scan.ps1" -Destination (Join-Path $toolsDir "jfrog-scan.ps1") -Force
+    Copy-Item "$templateDir/jfrog-scan.ps1" -Destination (Join-Path $toolsDir "jfrog-scan.ps1") -Force
     $xrayProps = "url=$xrayUrl`nwatches=$xrayWatches`ninsecureTls=$xrayInsecureTls`n"
     Set-Content -Path (Join-Path $targetPath "jfrog-xray.properties") -Value $xrayProps -Encoding UTF8 -NoNewline
     Write-Host "    Copied tools/jfrog-scan.ps1, generated jfrog-xray.properties" -ForegroundColor Green
@@ -260,7 +261,7 @@ if (Test-Path $gitignore) {
 
 # Generate sonar-project.properties from the template
 if ($enableSonarQube -eq "true") {
-    $sonarTemplate = "templates/sonar-project.properties"
+    $sonarTemplate = "$templateDir/sonar-project.properties"
     if (Test-Path $sonarTemplate) {
         $sonarProjectKey = "${groupId}:${artifactId}"
         Write-Host "    Generating sonar-project.properties (projectKey=$sonarProjectKey)..." -ForegroundColor Green
@@ -284,7 +285,7 @@ if (Test-Path "sonar-token.txt") {
 }
 
 # Copy .github directory (Copilot rules & agent configs)
-$githubSource = "templates/.github"
+$githubSource = "$templateDir/.github"
 if (Test-Path $githubSource) {
     Copy-Item $githubSource -Destination (Join-Path $targetPath ".github") -Recurse -Force
     Write-Host "    Copied .github/ (copilot-instructions, agents, workflows)" -ForegroundColor Green

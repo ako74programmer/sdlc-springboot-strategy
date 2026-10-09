@@ -18,10 +18,11 @@ Repozytorium jest generatorem projektów Spring Boot (Initializr) z wbudowanym p
 | `config/project-config.yaml` | Jedyne źródło konfiguracji generatora i bramek |
 | `scripts/generate-project.ps1` | Generuje projekt do `generated-projects/<artifactId>`, wstrzykuje pom, narzędzia, agentów, hook, `.gitignore` |
 | `scripts/env-up.ps1` | Podnosi MongoDB (27017) i SonarQube (9000), tworzy token Sonara, kopiuje do projektu |
-| `templates/sdlc.ps1` | Lokalny pipeline bramek, kopiowany jako `tools/sdlc.ps1`; zapisuje `sdlc-report.json` |
-| `templates/jfrog-scan.ps1` | Bramka Xray, kopiowana jako `tools/jfrog-scan.ps1` |
-| `templates/.github/agents/*` | Agenci: sdlc-orchestrator, planner, developer, test-engineer, security-reviewer, quality-fixer |
-| `templates/.github/workflows/sdlc.yml` | CI lustrzany do lokalnego pipeline |
+| `templates/greenfield/sdlc.ps1` | Lokalny pipeline bramek, kopiowany jako `tools/sdlc.ps1`; zapisuje `sdlc-report.json` |
+| `templates/greenfield/jfrog-scan.ps1` | Bramka Xray, kopiowana jako `tools/jfrog-scan.ps1` |
+| `templates/greenfield/.github/agents/*` | Agenci: sdlc-orchestrator, planner, developer, test-engineer, security-reviewer, quality-fixer |
+| `templates/greenfield/.github/workflows/sdlc.yml` | CI lustrzany do lokalnego pipeline |
+| `templates/brownfield/*` | Osobny szablon dla pobranego kodu (`projects/`): własne kopie `sdlc.ps1`, `jfrog-scan.ps1`, agentów, plus `recon.ps1` i instrukcje brownfield. Używa go `scripts/attach-project.ps1` |
 
 Kolejność bramek w `sdlc.ps1`: Compilation, Tests, VulnerabilityCheck (OWASP, tylko gdy plugin jest w pom), XrayScan (tylko gdy istnieje `jfrog-xray.properties`), SonarQube, SonarQube-QualityGate.
 
