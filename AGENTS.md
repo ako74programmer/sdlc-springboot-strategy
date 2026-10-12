@@ -16,7 +16,8 @@ Repozytorium jest generatorem projektów Spring Boot (Initializr) z wbudowanym p
 | Element | Rola |
 |---|---|
 | `config/project-config.yaml` | Jedyne źródło konfiguracji generatora i bramek |
-| `scripts/generate-project.ps1` | Generuje projekt do `projects/<artifactId>` (`projectsDir`), znacznik `.sdlc-generated`; katalog bez znacznika nadpisuje tylko z `-Force`. Wstrzykuje pom, narzędzia, agentów, hook, `.gitignore` |
+| `scripts/generate-project.ps1` | Generuje projekt do `projects/<artifactId>` (`projectsDir`), znacznik `.sdlc-generated`; katalog bez znacznika nadpisuje tylko z `-Force`. Wstrzykuje pom, narzędzia, agentów, hook, `.gitignore`. Od 2026-10-12 robi `git init`: commit na `main`, gałąź robocza `sdlc-work`; odmawia regeneracji, gdy jest praca w gicie (bez `-Force`) |
+| `scripts/fetch-project.ps1` | Brownfield odpowiednik generatora: `git clone` do `projects/<Project>`; nie rusza istniejącego folderu, `-Fresh` kasuje go po potwierdzeniu |
 | `scripts/env-up.ps1` | Podnosi MongoDB (27017) i SonarQube (9000), tworzy token Sonara, kopiuje do projektu |
 | `templates/greenfield/sdlc.ps1` | Lokalny pipeline bramek, kopiowany jako `tools/sdlc.ps1`; zapisuje `sdlc-report.json` |
 | `templates/greenfield/jfrog-scan.ps1` | Bramka Xray, kopiowana jako `tools/jfrog-scan.ps1` |
@@ -107,6 +108,7 @@ $t=(Get-Content sonar-token.txt -Raw).Trim(); $h=@{Authorization="Bearer $t"}
 - Odczyt końcowy: `gates` (`Regression`, `TestIntegrity` = `PASS`), `metrics.diff.changed`, `delta`, `warnings`. Porównaj z sekcją "Kryteria zaliczenia" w `tests\scenarios\<scenariusz>\expected.md`.
 - `sonarfix` wymaga `sonarMaxOpenIssues: 0` w `sdlc-settings.json` (ustawia `attach-project.ps1 -Scenario sonarfix`).
 - Wszystkie scenariusze mają ten sam klucz Sonara (`com.example.shop:shop-service`); uruchamiaj je po kolei, nie równolegle.
+- `feature` (od 2026-10-12): `start-scenario.ps1` -> `fetch-project.ps1` (`git clone` z `scenarioRepoUrl`, bez MCP GitLab; istniejący folder pomija, `-Fresh` kasuje i klonuje po potwierdzeniu) -> `attach-project.ps1`. `attach-project.ps1` kopiuje `.vscode/mcp.json` (tylko Jira/Confluence, read-only). Orchestrator dopisuje treść zgłoszenia do `task.md` (`## Source`), przepływ: analyst -> planner -> developer -> test-engineer -> security-reviewer -> verify. Sprawdź: każde kryterium akceptacji ma test, `plan.md` zgodny z konwencjami projektu.
 
 ## 5. Znane odchylenia agentów z sesji 2026-10-08
 
@@ -117,6 +119,7 @@ $t=(Get-Content sonar-token.txt -Raw).Trim(); $h=@{Authorization="Bearer $t"}
 ## 6. Pułapki narzędziowe (żeby ich nie powtarzać)
 
 - `jf scan` zwraca kod 0 mimo naruszeń watcha bez akcji blokującej. Werdykt liczy `jfrog-scan.ps1` (każdy wpis w `violations` lub `vulnerabilities` to błąd); `jf scan` jest wołany z `--fail=false`.
+- Xray "no fix available" dotyczy tylko skanowanej wersji, nie znaczy, że poprawki nie ma. Sesja 2026-10-09: 8 takich CVE Tomcata 11.0.24 zniknęło po podbiciu do 11.0.26 (nadpisanie dla innych CVE). Przed zgłoszeniem blokady podbij wersję i przeskanuj ponownie.
 - Flagi logiczne `jf` podawaj jako `--insecure-tls=true`. Bez wartości `jf config add` kończy się błędem.
 - Token do `jf config add` przekazuj przez stdin (`--access-token-stdin`); w tym trybie nie ma sensu dopisywać tokena do argumentów.
 - Zmienne `JF_URL` i `JF_ACCESS_TOKEN` nie wystarczają dla `jf scan` (błąd "--url or --xray-url"); trzeba skonfigurować serwer.
@@ -125,6 +128,8 @@ $t=(Get-Content sonar-token.txt -Raw).Trim(); $h=@{Authorization="Bearer $t"}
 - W PowerShell argument `-Djacoco.skip=true` podawaj w cudzysłowie.
 - Bramka OWASP z `failOnError=false` potrafiła dawać PASS bez raportu (`target\dependency-check-report.json`). Teraz zapisuje to w `warnings` raportu.
 - Regeneracja (`generate-project.ps1`) kasuje cały katalog projektu, w tym zaimplementowany kod. Do testów generatora użyj `-OutputDir scratch\gen` i usuń katalog po teście.
+- Sonar: `api/ce/component` pokazuje w `current` ostatnie zakończone zadanie, a nowe czeka w `queue`. Wynik Quality Gate i problemy trzeba wiązać z `ceTaskId` z `target/sonar/report-task.txt` (`api/ce/task`, potem `project_status?analysisId=`). Do 2026-10-12 `sdlc.ps1` czytał wynik poprzedniej analizy, a baseline miał 0 problemów. Brownfield `Regression` porównuje teraz klucze problemów (`sonarIssueKeys` w baseline).
+- Xray jest bramką obowiązkową (CI/CD). Agenci nie mogą traktować podatności zależności jako "poza zakresem" ani pytać o `-SkipXray`.
 
 ## 7. Co jeszcze nie zostało zweryfikowane
 

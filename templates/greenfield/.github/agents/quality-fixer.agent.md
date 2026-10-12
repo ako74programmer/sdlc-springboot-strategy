@@ -67,7 +67,7 @@ Role: You are a specialized Spring Boot Quality Fixer. Your sole objective is to
 - Full data: `target/xray-findings.json` (compact) and `target/xray-report.json` (raw Xray output).
 - Fix by upgrading the dependency in `pom.xml` (prefer the parent/BOM version, e.g. `spring-boot-starter-parent`, over pinning transitive versions); keep the project compiling and tests green.
 - When the parent cannot be upgraded, override the Boot-managed version through a `<properties>` entry (e.g. `<tomcat.version>`, `<jackson-bom.version>`) and add a one-line comment naming the CVE; never declare a duplicate dependency just to pin a version.
-- If `fixedVersions` is empty (no fix available), do NOT suppress or ignore it - report it to the user for a decision.
+- "No fix available" refers only to the scanned version: upgrade to the newest patch of that line and re-scan first. Only if the finding is still there with empty `fixedVersions`, report it to the user - never suppress or ignore it.
 - If the gate fails with exit code 2 (no token, jf missing, server unreachable) it is an environment problem, not a code defect - report it instead of editing code.
 
 ### SonarQube / SonarQube-QualityGate

@@ -3,12 +3,14 @@
 #   .\tools\sdlc.ps1 -Baseline           record the starting state (sdlc-baseline.json)
 #   .\tools\sdlc.ps1                     gates + Regression/TestIntegrity/DiffGuard against the baseline
 #   .\tools\sdlc.ps1 -ReproTest Cls#m     also prove a bug: the test must be red first, green after the fix
+#   .\tools\sdlc.ps1 -CheckReport        does sdlc-report.json describe the current code? (exit 0 = yes)
 # ==============================================================================
 Param(
     [switch]$SkipSonar,
     [switch]$SkipOwasp,
     [switch]$SkipXray,
     [switch]$Baseline,
+    [switch]$CheckReport,
     [string]$ReproTest,
     [string]$MavenSettings = $env:MAVEN_SETTINGS,
     [string]$SonarPluginVersion = "5.8.0.7211"
@@ -63,6 +65,35 @@ $gateStatus = @{
 }
 # "package.Class#method" -> passed | failed | skipped
 $testCases = @{}
+
+# Tree hash of tracked + untracked files (ignored ones excluded), built in a temporary index
+function Get-WorkTreeHash {
+    $null = git rev-parse --is-inside-work-tree 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    $tmpIndex = Join-Path ([IO.Path]::GetTempPath()) "sdlc-index-$PID"
+    $previous = $env:GIT_INDEX_FILE
+    try {
+        $env:GIT_INDEX_FILE = $tmpIndex
+        git add -A 2>$null
+        return (git write-tree 2>$null)
+    } finally {
+        $env:GIT_INDEX_FILE = $previous
+        Remove-Item $tmpIndex -ErrorAction SilentlyContinue
+    }
+}
+
+if ($CheckReport) {
+    if (-not (Test-Path $reportFile)) { Write-Host "No $reportFile - run .\tools\sdlc.ps1" -ForegroundColor Red; exit 1 }
+    $recorded = (Get-Content $reportFile -Raw | ConvertFrom-Json).workTreeHash
+    $now = Get-WorkTreeHash
+    if ($recorded -and $recorded -eq $now) {
+        Write-Host "$reportFile matches the current code ($now)" -ForegroundColor Green
+        exit 0
+    }
+    Write-Host "$reportFile does NOT match the current code (report: $recorded, now: $now) - run .\tools\sdlc.ps1 again" -ForegroundColor Red
+    exit 1
+}
+$gateStatus.workTreeHash = Get-WorkTreeHash
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "          LOCAL SDLC PIPELINE           " -ForegroundColor Cyan
@@ -217,36 +248,58 @@ function Check-SonarQualityGate {
         return $null
     }
     
-    # Wait for SonarQube to process the analysis (async processing)
-    Write-Host "    Waiting for SonarQube analysis to complete..." -ForegroundColor Gray
-    $maxWait = 60
-    $elapsed = 0
     $headers = @{}
     if ($Token) { $headers["Authorization"] = "Bearer $Token" }
-    
+
+    # api/ce/component only shows the last finished task; this run's task id is in the scanner's report-task.txt
+    $reportTask = "target/sonar/report-task.txt"
+    $ceTaskId = $null
+    if (Test-Path $reportTask) {
+        $line = Get-Content $reportTask | Where-Object { $_ -match '^ceTaskId=' } | Select-Object -First 1
+        if ($line) { $ceTaskId = ($line -split '=', 2)[1].Trim() }
+    }
+    if (-not $ceTaskId) {
+        Write-Host "    Warning: no ceTaskId in $reportTask - Quality Gate cannot be tied to this analysis" -ForegroundColor DarkYellow
+        $script:gateStatus.warnings += "SonarQube: no ceTaskId in $reportTask; Quality Gate and open issues not checked"
+        return $null
+    }
+
+    Write-Host "    Waiting for SonarQube analysis task $ceTaskId..." -ForegroundColor Gray
+    $maxWait = 180
+    $elapsed = 0
+    $analysisId = $null
     do {
-        Start-Sleep 5
-        $elapsed += 5
         try {
-            $ceUrl = "$SonarUrl/api/ce/component?component=$projectKey"
-            $ceResponse = Invoke-RestMethod -Uri $ceUrl -Headers $headers -ErrorAction Stop
-            $currentTask = $ceResponse.current
-            if ($null -eq $currentTask) { break }
-            if ($currentTask.status -eq "SUCCESS") { break }
-            if ($currentTask.status -eq "FAILED") {
-                Write-Host "    SonarQube analysis task FAILED" -ForegroundColor Red
+            $task = (Invoke-RestMethod -Uri "$SonarUrl/api/ce/task?id=$ceTaskId" -Headers $headers -ErrorAction Stop).task
+            if ($task.status -eq "SUCCESS") { $analysisId = $task.analysisId; break }
+            if ($task.status -in @("FAILED", "CANCELED")) {
+                Write-Host "    SonarQube analysis task $($task.status)" -ForegroundColor Red
                 return "ERROR"
             }
         } catch {
-            # API not ready yet, keep waiting
+            # Task not visible yet, keep waiting
         }
+        Start-Sleep 3
+        $elapsed += 3
     } while ($elapsed -lt $maxWait)
-    
-    # Query Quality Gate status
+
+    if (-not $analysisId) {
+        Write-Host "    Warning: analysis task $ceTaskId not finished after ${maxWait}s" -ForegroundColor DarkYellow
+        $script:gateStatus.warnings += "SonarQube: analysis task $ceTaskId not finished after ${maxWait}s; Quality Gate and open issues unknown"
+        return $null
+    }
+    $script:sonarAnalysisDone = $true
+
+    # Query Quality Gate status of exactly this analysis
     try {
-        $qgUrl = "$SonarUrl/api/qualitygates/project_status?projectKey=$projectKey"
+        $qgUrl = "$SonarUrl/api/qualitygates/project_status?analysisId=$analysisId"
         $qgResponse = Invoke-RestMethod -Uri $qgUrl -Headers $headers -ErrorAction Stop
         $qgStatus = $qgResponse.projectStatus.status
+        if ($qgStatus -eq "NONE") {
+            Write-Host "    Quality Gate: NONE (no gate assigned to the project)" -ForegroundColor DarkYellow
+            $script:gateStatus.warnings += "SonarQube: Quality Gate status NONE (no gate assigned to the project)"
+            return $null
+        }
         
         Write-Host "    Quality Gate: $qgStatus" -ForegroundColor $(if ($qgStatus -eq "OK") { "Green" } else { "Red" })
         
@@ -416,10 +469,19 @@ if (-not $SkipSonar) {
             }
 
             # Open issues: needed for the baseline/Regression and for sonarfix scenarios (QG checks new code only)
-            try {
+            if (-not $script:sonarAnalysisDone) {
+                Write-Host "    Open issues not read: this run's analysis was not confirmed" -ForegroundColor DarkYellow
+            } else { try {
                 $projectKey = [uri]::EscapeDataString((Get-SonarProperty "sonar.projectKey"))
-                $issues = Invoke-RestMethod -Uri "$sonarUrl/api/issues/search?componentKeys=$projectKey&resolved=false&ps=100" `
-                    -Headers @{ Authorization = "Bearer $sonarToken" } -ErrorAction Stop
+                $issueList = @()
+                $page = 1
+                do {
+                    $issues = Invoke-RestMethod -Uri "$sonarUrl/api/issues/search?componentKeys=$projectKey&resolved=false&ps=500&p=$page" `
+                        -Headers @{ Authorization = "Bearer $sonarToken" } -ErrorAction Stop
+                    $issueList += @($issues.issues)
+                    $page++
+                } while ($issueList.Count -lt [int]$issues.total -and @($issues.issues).Count -gt 0)
+                $script:sonarIssues = $issueList
                 $script:gateStatus.metrics.sonar.openIssues = [int]$issues.total
                 Write-Host "    Open issues: $($issues.total)" -ForegroundColor Gray
 
@@ -428,7 +490,7 @@ if (-not $SkipSonar) {
                         $script:gateStatus.gates["SonarQube-Issues"] = "FAIL"
                         $script:gateStatus.status = "FAILED"
                         Write-Host "[GATE FAIL] SonarQube-Issues ($($issues.total) > $($settings.sonarMaxOpenIssues))" -ForegroundColor Red
-                        foreach ($i in @($issues.issues)) {
+                        foreach ($i in $issueList) {
                             $script:gateStatus.errors += @{
                                 gate    = "SonarQube-Issues"
                                 summary = "[$($i.severity) $($i.type)] $($i.rule)"
@@ -443,7 +505,7 @@ if (-not $SkipSonar) {
             } catch {
                 Write-Host "    Warning: could not read open issues: $_" -ForegroundColor DarkYellow
                 $script:gateStatus.warnings += "Could not read SonarQube open issues: $_"
-            }
+            } }
         }
     }
 } else {
@@ -529,6 +591,7 @@ if ($Baseline) {
         cases               = $testCases
         coverage            = $script:gateStatus.metrics.coverage
         sonarOpenIssues     = $script:gateStatus.metrics.sonar.openIssues
+        sonarIssueKeys      = $(if ($null -ne $script:sonarIssues) { , @($script:sonarIssues | ForEach-Object { $_.key }) } else { $null })
         testFiles           = Get-TestFileFacts
         suppressions        = Get-SuppressionCount
         sonarPropertiesHash = Get-FileHashOrNull "sonar-project.properties"
@@ -562,7 +625,15 @@ if ($Baseline) {
             Add-GateError "Regression" "Line coverage dropped" "Baseline: $covBase%, now: $covNow%"
         }
         $sonarNow = $script:gateStatus.metrics.sonar.openIssues
-        if ($null -ne $sonarNow -and $null -ne $base.sonarOpenIssues -and [int]$sonarNow -gt [int]$base.sonarOpenIssues) {
+        if ($null -ne $script:sonarIssues -and $null -ne $base.sonarIssueKeys) {
+            # Issue keys survive Sonar's issue tracking, so only issues absent from the baseline count as new
+            $known = @{}
+            foreach ($k in @($base.sonarIssueKeys)) { $known[$k] = $true }
+            foreach ($i in @($script:sonarIssues | Where-Object { -not $known.ContainsKey($_.key) })) {
+                $ok = $false
+                Add-GateError "Regression" "New SonarQube issue [$($i.severity) $($i.type)] $($i.rule)" "$($i.component -replace '^[^:]*:[^:]*:', ''):$($i.line) $($i.message)"
+            }
+        } elseif ($null -ne $sonarNow -and $null -ne $base.sonarOpenIssues -and [int]$sonarNow -gt [int]$base.sonarOpenIssues) {
             $ok = $false
             Add-GateError "Regression" "More open SonarQube issues than in baseline" "Baseline: $($base.sonarOpenIssues), now: $sonarNow"
         }

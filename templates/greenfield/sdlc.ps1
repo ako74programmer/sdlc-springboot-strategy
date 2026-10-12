@@ -1,10 +1,13 @@
 # ==============================================================================
 # LOCAL SDLC PIPELINE - Quality & Security Gates
+#   .\tools\sdlc.ps1                 all gates, writes sdlc-report.json
+#   .\tools\sdlc.ps1 -CheckReport    does sdlc-report.json describe the current code? (exit 0 = yes)
 # ==============================================================================
 Param(
     [switch]$SkipSonar,
     [switch]$SkipOwasp,
     [switch]$SkipXray,
+    [switch]$CheckReport,
     [string]$MavenSettings = $env:MAVEN_SETTINGS,
     [string]$SonarPluginVersion = "5.8.0.7211"
 )
@@ -33,6 +36,35 @@ $gateStatus = @{
     errors    = @()
     warnings  = @()
 }
+
+# Tree hash of tracked + untracked files (ignored ones excluded), built in a temporary index
+function Get-WorkTreeHash {
+    $null = git rev-parse --is-inside-work-tree 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    $tmpIndex = Join-Path ([IO.Path]::GetTempPath()) "sdlc-index-$PID"
+    $previous = $env:GIT_INDEX_FILE
+    try {
+        $env:GIT_INDEX_FILE = $tmpIndex
+        git add -A 2>$null
+        return (git write-tree 2>$null)
+    } finally {
+        $env:GIT_INDEX_FILE = $previous
+        Remove-Item $tmpIndex -ErrorAction SilentlyContinue
+    }
+}
+
+if ($CheckReport) {
+    if (-not (Test-Path $reportFile)) { Write-Host "No $reportFile - run .\tools\sdlc.ps1" -ForegroundColor Red; exit 1 }
+    $recorded = (Get-Content $reportFile -Raw | ConvertFrom-Json).workTreeHash
+    $now = Get-WorkTreeHash
+    if ($recorded -and $recorded -eq $now) {
+        Write-Host "$reportFile matches the current code ($now)" -ForegroundColor Green
+        exit 0
+    }
+    Write-Host "$reportFile does NOT match the current code (report: $recorded, now: $now) - run .\tools\sdlc.ps1 again" -ForegroundColor Red
+    exit 1
+}
+$gateStatus.workTreeHash = Get-WorkTreeHash
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "          LOCAL SDLC PIPELINE           " -ForegroundColor Cyan
@@ -178,36 +210,57 @@ function Check-SonarQualityGate {
         return $null
     }
     
-    # Wait for SonarQube to process the analysis (async processing)
-    Write-Host "    Waiting for SonarQube analysis to complete..." -ForegroundColor Gray
-    $maxWait = 60
-    $elapsed = 0
     $headers = @{}
     if ($Token) { $headers["Authorization"] = "Bearer $Token" }
-    
+
+    # api/ce/component only shows the last finished task; this run's task id is in the scanner's report-task.txt
+    $reportTask = "target/sonar/report-task.txt"
+    $ceTaskId = $null
+    if (Test-Path $reportTask) {
+        $line = Get-Content $reportTask | Where-Object { $_ -match '^ceTaskId=' } | Select-Object -First 1
+        if ($line) { $ceTaskId = ($line -split '=', 2)[1].Trim() }
+    }
+    if (-not $ceTaskId) {
+        Write-Host "    Warning: no ceTaskId in $reportTask - Quality Gate cannot be tied to this analysis" -ForegroundColor DarkYellow
+        $script:gateStatus.warnings += "SonarQube: no ceTaskId in $reportTask; Quality Gate not checked"
+        return $null
+    }
+
+    Write-Host "    Waiting for SonarQube analysis task $ceTaskId..." -ForegroundColor Gray
+    $maxWait = 180
+    $elapsed = 0
+    $analysisId = $null
     do {
-        Start-Sleep 5
-        $elapsed += 5
         try {
-            $ceUrl = "$SonarUrl/api/ce/component?component=$projectKey"
-            $ceResponse = Invoke-RestMethod -Uri $ceUrl -Headers $headers -ErrorAction Stop
-            $currentTask = $ceResponse.current
-            if ($null -eq $currentTask) { break }
-            if ($currentTask.status -eq "SUCCESS") { break }
-            if ($currentTask.status -eq "FAILED") {
-                Write-Host "    SonarQube analysis task FAILED" -ForegroundColor Red
+            $task = (Invoke-RestMethod -Uri "$SonarUrl/api/ce/task?id=$ceTaskId" -Headers $headers -ErrorAction Stop).task
+            if ($task.status -eq "SUCCESS") { $analysisId = $task.analysisId; break }
+            if ($task.status -in @("FAILED", "CANCELED")) {
+                Write-Host "    SonarQube analysis task $($task.status)" -ForegroundColor Red
                 return "ERROR"
             }
         } catch {
-            # API not ready yet, keep waiting
+            # Task not visible yet, keep waiting
         }
+        Start-Sleep 3
+        $elapsed += 3
     } while ($elapsed -lt $maxWait)
-    
-    # Query Quality Gate status
+
+    if (-not $analysisId) {
+        Write-Host "    Warning: analysis task $ceTaskId not finished after ${maxWait}s" -ForegroundColor DarkYellow
+        $script:gateStatus.warnings += "SonarQube: analysis task $ceTaskId not finished after ${maxWait}s; Quality Gate unknown"
+        return $null
+    }
+
+    # Query Quality Gate status of exactly this analysis
     try {
-        $qgUrl = "$SonarUrl/api/qualitygates/project_status?projectKey=$projectKey"
+        $qgUrl = "$SonarUrl/api/qualitygates/project_status?analysisId=$analysisId"
         $qgResponse = Invoke-RestMethod -Uri $qgUrl -Headers $headers -ErrorAction Stop
         $qgStatus = $qgResponse.projectStatus.status
+        if ($qgStatus -eq "NONE") {
+            Write-Host "    Quality Gate: NONE (no gate assigned to the project)" -ForegroundColor DarkYellow
+            $script:gateStatus.warnings += "SonarQube: Quality Gate status NONE (no gate assigned to the project)"
+            return $null
+        }
         
         Write-Host "    Quality Gate: $qgStatus" -ForegroundColor $(if ($qgStatus -eq "OK") { "Green" } else { "Red" })
         

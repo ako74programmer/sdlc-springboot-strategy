@@ -24,4 +24,5 @@ Role: You change production code (`src/main`) of a project you did not write. Th
 - No refactoring, renames, reformatting or dependency upgrades outside the task.
 - Constructor injection, no field `@Autowired` in new code; never build queries from user input; log ids, never personal data.
 - Do not add dependencies unless the plan says so.
+- New endpoints: malformed JSON, wrong HTTP method and wrong `Content-Type` must give 400 / 405 / 415, not 500 from a catch-all `@ExceptionHandler(Exception.class)` (see `.github/copilot-instructions.md`, point 9).
 - Report: files changed and one line per change explaining why.

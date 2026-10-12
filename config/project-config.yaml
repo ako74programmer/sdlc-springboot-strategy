@@ -4,11 +4,11 @@ project:
   type: maven-project              # maven-project | gradle-project
   language: java                   # java | kotlin | groovy
   bootVersion: 4.1.1               # Spring Boot version ('latest' = Initializr recommended default)
-  groupId: com.example.sdlc
+  groupId: pl.erste.sdlc
   artifactId: springboot-sdlc-demo
   name: springboot-sdlc-demo
   description: "Spring Boot Service with Automated AI & Quality Pipeline"
-  packageName: com.example.sdlc.demo
+  packageName: pl.erste.sdlc.demo
   packaging: jar                   # jar | war
   javaVersion: 25                  # 17 | 21 | 25
 

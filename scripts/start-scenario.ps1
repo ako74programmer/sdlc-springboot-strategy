@@ -7,11 +7,15 @@
 #   .\scripts\start-scenario.ps1                                   (values from config/scenario-config.yaml)
 #   .\scripts\start-scenario.ps1 -Scenario greenfield
 #   .\scripts\start-scenario.ps1 -Scenario bugfix -Project my-legacy-app
+#   .\scripts\start-scenario.ps1 -Scenario feature -RepoUrl https://gitlab.../group/app.git   (fetch-project.ps1 -> attach-project.ps1)
+#   .\scripts\start-scenario.ps1 -Fresh                            (delete the project folder and clone again, asks first)
 # ==============================================================================
 Param(
     [string]$Scenario,
     [string]$Project,
-    [string]$ScenarioConfig = "config/scenario-config.yaml"
+    [string]$RepoUrl,
+    [string]$ScenarioConfig = "config/scenario-config.yaml",
+    [switch]$Fresh
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +38,8 @@ function Get-ScenarioValue([string]$key) {
 if (-not $Scenario) { $Scenario = Get-ScenarioValue "scenarioType" }
 if (-not $Scenario) { $Scenario = "greenfield" }
 if (-not $Project) { $Project = Get-ScenarioValue "scenarioProject" }
+if (-not $RepoUrl) { $RepoUrl = Get-ScenarioValue "scenarioRepoUrl" }
+if (-not $Project -and $RepoUrl) { $Project = [IO.Path]::GetFileNameWithoutExtension($RepoUrl.TrimEnd('/')) }
 
 if ($scenarios -notcontains $Scenario) {
     Write-Error "Unknown scenario '$Scenario'. Allowed: $($scenarios -join ', ')"
@@ -49,6 +55,9 @@ try {
     } else {
         if (-not $Project) {
             Write-Error "Scenario '$Scenario' needs -Project <folder in projects/> (or scenarioProject in $ScenarioConfig)."
+        }
+        if ($RepoUrl) {
+            & (Join-Path $PSScriptRoot "fetch-project.ps1") -RepoUrl $RepoUrl -Project $Project -ScenarioConfig $ScenarioConfig -Fresh:$Fresh
         }
         & (Join-Path $PSScriptRoot "attach-project.ps1") -Project $Project -Scenario $Scenario
     }

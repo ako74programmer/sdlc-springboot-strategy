@@ -118,6 +118,8 @@ foreach ($agent in Get-ChildItem (Join-Path $templates "agents") -File) {
     Add-ProjectFile $agent.FullName ".github\agents\$($agent.Name)"
 }
 Add-ProjectFile (Join-Path $templates "copilot-instructions.md") ".github\copilot-instructions.md"
+# Jira/Confluence read-only, so the orchestrator can fetch the task text
+Add-ProjectFile (Join-Path $templates "mcp.json") ".vscode\mcp.json"
 
 if ($projectCfg["enableXray"] -eq "true" -and $projectCfg["xrayUrl"]) {
     Add-ProjectFile (Join-Path $templates "jfrog-scan.ps1") "tools\jfrog-scan.ps1"
@@ -318,5 +320,6 @@ if (-not $SkipRecon) {
 
 Write-Host "`nNext steps:" -ForegroundColor Yellow
 Write-Host "  1. .\scripts\env-up.ps1 -ProjectPath $projectsDir\$Project   (MongoDB + SonarQube + token)"
-Write-Host "  2. cd $projectsDir\$Project"
-Write-Host "  3. Read recon-report.json, then .\tools\sdlc.ps1"
+Write-Host "  2. Open the folder $projectsDir\$Project in a NEW VS Code window (agents and .vscode/mcp.json load from the project root)"
+Write-Host "  3. Ctrl+Shift+P > 'MCP: List Servers' > erste-intranet-mcp > Start Server (trust it once; needed for Jira/Confluence tasks)"
+Write-Host "  4. In chat pick @sdlc-orchestrator and paste the task or the Jira link"

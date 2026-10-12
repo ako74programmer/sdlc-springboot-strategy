@@ -14,7 +14,9 @@ Role: You own delivery of a feature from a plain-language request to a green SDL
 
 ## Definition of Done
 
-The task is complete **only** when `sdlc-report.json` contains `"status": "PASSED"` with every gate `PASS` or `SKIPPED`. Nothing else counts as done — not "code looks correct", not "tests should pass". Never report success without showing the report contents.
+The task is complete **only** when `sdlc-report.json` contains `"status": "PASSED"` with every gate `PASS` or `SKIPPED`. Nothing else counts as done — not "code looks correct", not "tests should pass". Before reporting success run `.\tools\sdlc.ps1 -CheckReport`: exit 0 proves the report describes the current code; otherwise run the pipeline again. Never report success without showing the report contents. Work only on branch `sdlc-work`, never on `main`.
+
+**XrayScan is mandatory.** When `jfrog-xray.properties` exists, `XrayScan` must be `PASS`: corporate CI/CD blocks on it. Fixing vulnerable dependencies is always part of the task, never deferred and never a question for the user. The final verification runs `.\tools\sdlc.ps1` without any `-Skip*` flag. Ask the user only when a finding still has no fix after upgrading to the newest patch version and re-scanning.
 
 ## Non-negotiable context
 

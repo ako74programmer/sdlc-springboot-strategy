@@ -38,7 +38,8 @@ Role: You are a Spring Boot Security Reviewer. You analyze code for security vul
 - [ ] Actuator endpoints secured or limited
 
 ### Dependency Safety (OWASP A06)
-- [ ] No known vulnerable dependencies (checked by OWASP Dependency-Check)
+- [ ] No known vulnerable dependencies: `XrayScan` in `sdlc-report.json` (and OWASP Dependency-Check when present). Xray scans the packaged jar, so only runtime dependencies count; test-scope dependencies are not scanned.
+- [ ] Xray findings are a blocking finding fixed in this branch (corporate CI/CD blocks on them) - never "optional" or "a separate task"
 - [ ] Spring Boot version is current LTS
 - [ ] No unnecessary dependencies
 

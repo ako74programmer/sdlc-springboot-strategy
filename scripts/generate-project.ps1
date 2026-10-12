@@ -153,6 +153,15 @@ if (Test-Path $targetPath) {
         Remove-Item $tempZip -Force
         Write-Error "$targetPath exists and was not created by this generator (no $generatedMarker). Nothing was deleted. Change artifactId, remove the folder yourself, or re-run with -Force."
     }
+    # Agents' work lives on sdlc-work; regenerating must not silently throw it away
+    if ((Test-Path (Join-Path $targetPath ".git")) -and -not $Force) {
+        $dirty = git -C $targetPath status --porcelain 2>$null
+        $ahead = git -C $targetPath rev-list --count main..sdlc-work 2>$null
+        if ($dirty -or ([int]$ahead -gt 0)) {
+            Remove-Item $tempZip -Force
+            Write-Error "$targetPath has work in git (uncommitted changes or commits on sdlc-work). Nothing was deleted. Push or save it, change artifactId, or re-run with -Force."
+        }
+    }
     Remove-Item $targetPath -Recurse -Force
 }
 New-Item -ItemType Directory -Path $targetPath -Force | Out-Null
@@ -323,7 +332,7 @@ if (Test-Path $githubSource) {
 }
 
 # 6. Create pre-commit hook
-Write-Host "`n[6/7] Setting up Git pre-commit hook..." -ForegroundColor Yellow
+Write-Host "`n[6/7] Setting up Git repository and pre-commit hook..." -ForegroundColor Yellow
 $hooksDir = Join-Path $targetPath ".githooks"
 New-Item -ItemType Directory -Path $hooksDir -Force | Out-Null
 
@@ -367,6 +376,30 @@ Set-Content -Path (Join-Path $toolsDir "enable-hooks.ps1") -Value $hooksSetup -E
 
 Write-Host "    Created .githooks/pre-commit" -ForegroundColor Green
 Write-Host "    Created tools/enable-hooks.ps1 (run once to activate)" -ForegroundColor Green
+
+# Every project is versioned: main = generated starting point, sdlc-work = where the agents change code
+Push-Location $targetPath
+try {
+    git init -q -b main
+    if ($LASTEXITCODE -ne 0) { Write-Error "git init failed in $targetPath" }
+    $localFiles = @(".sdlc-generated", "sdlc-report.json", "sdlc-run.log", "plan.md", "security-review.md", "task.md")
+    Add-Content -Path ".git/info/exclude" -Value ((@("", "# added by generate-project.ps1") + ($localFiles | ForEach-Object { "/$_" })) -join "`n")
+    git add -A 2>$null
+    $secrets = @(git diff --cached --name-only | Where-Object { $_ -match '(^|/)(sonar-token\.txt|[^/]*\.token|\.env)$' })
+    if ($secrets.Count -gt 0) {
+        git reset -q
+        Write-Error "Secrets would be committed: $($secrets -join ', '). Check .gitignore in $targetPath."
+    }
+    git commit -q -m "Initial project from generate-project.ps1 ($artifactId, Spring Boot $bootVersion)"
+    if ($LASTEXITCODE -eq 0) {
+        git checkout -q -b sdlc-work
+        Write-Host "    Git repository: initial commit on main, working branch sdlc-work" -ForegroundColor Green
+    } else {
+        Write-Host "    WARNING: initial commit failed (git user.name / user.email not set?). Run in $targetPath`: git commit -m 'Initial project'; git checkout -b sdlc-work" -ForegroundColor DarkYellow
+    }
+} finally {
+    Pop-Location
+}
 
 # 7. Smoke Test (optional compile verification)
 Write-Host "`n[7/7] Smoke test - verifying generated project compiles..." -ForegroundColor Yellow
