@@ -114,6 +114,7 @@ try {
 Write-Host "`n[2/6] SDLC tools and agents (missing files only)" -ForegroundColor Yellow
 Add-ProjectFile (Join-Path $templates "sdlc.ps1") "tools\sdlc.ps1"
 Add-ProjectFile (Join-Path $templates "recon.ps1") "tools\recon.ps1"
+Add-ProjectFile (Join-Path $repoRoot "templates\shared\copilot-quota.ps1") "tools\copilot-quota.ps1"
 foreach ($agent in Get-ChildItem (Join-Path $templates "agents") -File) {
     Add-ProjectFile $agent.FullName ".github\agents\$($agent.Name)"
 }
@@ -291,7 +292,7 @@ if ($isGit) {
         $excludeFile = git rev-parse --git-path info/exclude
         New-Item -ItemType Directory -Path (Split-Path $excludeFile -Parent) -Force | Out-Null
         $existing = @(if (Test-Path $excludeFile) { Get-Content $excludeFile })
-        $wanted = @($added) + @("sdlc-attach.json", "sdlc-settings.json", "sdlc-report.json", "sdlc-baseline.json", "sdlc-repro.json",
+        $wanted = @($added) + @("sdlc-attach.json", "sdlc-settings.json", "sdlc-report.json", "sdlc-baseline.json", "sdlc-repro.json", "sdlc-cost.json",
             "recon-report.json", "sdlc-run.log", "task.md", "analysis.md", "plan.md", "security-review.md", "*.token", "sonar-token.txt")
         $missing = @($wanted | Select-Object -Unique | ForEach-Object { "/" + $_.TrimStart('/') } |
             Where-Object { $existing -notcontains $_ })

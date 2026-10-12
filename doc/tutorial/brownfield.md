@@ -140,6 +140,12 @@ Gotowe znaczy:
 
 Zmiany są na gałęzi `sdlc-work`. Pliki narzędzi i raportów są wykluczone z gita (`.git/info/exclude`), więc nie trafią do commita.
 
+### Koszt zadania
+
+Orchestrator na starcie zapisuje stan licznika zapytań premium Copilota (`.\tools\copilot-quota.ps1 -Mode start`), a na końcu podaje w raporcie sekcję **Cost**: zużyte kredyty, czas trwania i liczbę przebiegów `sdlc.ps1`. Dane zostają w `sdlc-cost.json`.
+
+Licznik obejmuje całe konto GitHub: jeśli w tym czasie używasz Copilota w innym oknie, to też się wliczy. Do wiarygodnego pomiaru nie pracuj równolegle w innych czatach.
+
 ## 6. Typowe problemy
 
 | Objaw | Przyczyna i rozwiązanie |

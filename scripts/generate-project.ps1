@@ -259,6 +259,8 @@ if (Test-Path $sdlcScriptSource) {
     Copy-Item $sdlcScriptSource -Destination (Join-Path $toolsDir "sdlc.ps1") -Force
     Write-Host "    Copied tools/sdlc.ps1" -ForegroundColor Green
 }
+Copy-Item "templates/shared/copilot-quota.ps1" -Destination (Join-Path $toolsDir "copilot-quota.ps1") -Force
+Write-Host "    Copied tools/copilot-quota.ps1" -ForegroundColor Green
 
 # JFrog Xray gate: tools/jfrog-scan.ps1 + jfrog-xray.properties (its presence enables the gate)
 if ($enableXray -eq "true") {
@@ -382,7 +384,7 @@ Push-Location $targetPath
 try {
     git init -q -b main
     if ($LASTEXITCODE -ne 0) { Write-Error "git init failed in $targetPath" }
-    $localFiles = @(".sdlc-generated", "sdlc-report.json", "sdlc-run.log", "plan.md", "security-review.md", "task.md")
+    $localFiles = @(".sdlc-generated", "sdlc-report.json", "sdlc-run.log", "sdlc-cost.json", "plan.md", "security-review.md", "task.md")
     Add-Content -Path ".git/info/exclude" -Value ((@("", "# added by generate-project.ps1") + ($localFiles | ForEach-Object { "/$_" })) -join "`n")
     git add -A 2>$null
     $secrets = @(git diff --cached --name-only | Where-Object { $_ -match '(^|/)(sonar-token\.txt|[^/]*\.token|\.env)$' })

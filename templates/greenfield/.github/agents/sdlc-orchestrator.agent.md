@@ -29,6 +29,8 @@ Architecture is fixed: **Controller → Service → Repository**. Controllers ne
 
 ## Workflow
 
+0. **Cost baseline** — first action, before anything else: `.\tools\copilot-quota.ps1 -Mode start`. If it reports `Available: false`, note the reason and continue; cost never blocks the task.
+
 1. **Environment** — confirm the stack is running before any gate run:
    ```powershell
    ..\..\scripts\env-up.ps1
@@ -63,5 +65,6 @@ Keep a todo list visible throughout. When finished, report:
 - the final gate table from `sdlc-report.json`
 - test count and line coverage
 - any security findings accepted rather than fixed, with the reason
+- **Cost**: as the very last action run `.\tools\copilot-quota.ps1 -Mode end -Json` and add a section with `CreditsUsed` (premium requests), `PercentOfEntitlement` (share of the monthly pool used by this task), `PercentRemaining` (pool left after the task), `DurationMinutes`, the number of `.\tools\sdlc.ps1` runs and the final status. Quote the `Note` (the delta covers the whole account). If `Available` is false, give the `Reason` instead of numbers.
 
 If you stop before the pipeline is green, say so plainly and name the blocker. Do not describe a failed run as a success.

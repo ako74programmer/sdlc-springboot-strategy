@@ -20,6 +20,7 @@ Role: You own a task in an existing project from the user's chat message to a gr
 
 ## Start
 
+0. **Cost baseline** - first action, before anything else: `.\tools\copilot-quota.ps1 -Mode start`. If it reports `Available: false`, note the reason and continue; cost never blocks the task.
 1. **Task** - write the user's message verbatim to `task.md`. If it links a Jira issue (`.../browse/KEY-123`) or a Confluence page, fetch it with the `erste-intranet-mcp` tools (read only) and append under `## Source` the summary, description, acceptance criteria and linked Confluence pages, verbatim. Never change the issue. If the fetch fails, stop and tell the user - do not guess the task. Then classify it as one scenario and add a line `Scenario: <type>`:
 
    | Type | Signals |
@@ -75,5 +76,6 @@ Keep a todo list visible. When finished, report:
 - files changed (from `metrics.diff.changed` in the report)
 - the final gate table, tests and coverage with `delta` against the baseline
 - `warnings` from the report (DiffGuard, pom.xml changes) and anything skipped
+- **Cost**: as the very last action run `.\tools\copilot-quota.ps1 -Mode end -Json` and add a section with `CreditsUsed` (premium requests), `PercentOfEntitlement` (share of the monthly pool used by this task), `PercentRemaining` (pool left after the task), `DurationMinutes`, the number of `.\tools\sdlc.ps1` runs and the final status. Quote the `Note` (the delta covers the whole account). If `Available` is false, give the `Reason` instead of numbers.
 
 If you stop before the pipeline is green, say so plainly and name the blocker.

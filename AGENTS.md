@@ -21,6 +21,7 @@ Repozytorium jest generatorem projektów Spring Boot (Initializr) z wbudowanym p
 | `scripts/env-up.ps1` | Podnosi MongoDB (27017) i SonarQube (9000), tworzy token Sonara, kopiuje do projektu |
 | `templates/greenfield/sdlc.ps1` | Lokalny pipeline bramek, kopiowany jako `tools/sdlc.ps1`; zapisuje `sdlc-report.json` |
 | `templates/greenfield/jfrog-scan.ps1` | Bramka Xray, kopiowana jako `tools/jfrog-scan.ps1` |
+| `templates/shared/copilot-quota.ps1` | Koszt zadania (kredyty premium Copilota, start/koniec), kopiowany jako `tools/copilot-quota.ps1`; stan w `sdlc-cost.json`; różnica obejmuje całe konto |
 | `templates/greenfield/.github/agents/*` | Agenci: sdlc-orchestrator, planner, developer, test-engineer, security-reviewer, quality-fixer |
 | `templates/greenfield/.github/workflows/sdlc.yml` | CI lustrzany do lokalnego pipeline |
 | `templates/brownfield/*` | Osobny szablon dla pobranego kodu (`projects/`): własne kopie `sdlc.ps1`, `jfrog-scan.ps1`, agentów, plus `recon.ps1` i instrukcje brownfield. Używa go `scripts/attach-project.ps1` |

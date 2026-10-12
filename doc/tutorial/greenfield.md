@@ -172,6 +172,12 @@ Gotowe znaczy:
 
 Kod jest na gałęzi `sdlc-work`. Aby wypchnąć go do GitLaba, dodaj zdalne repozytorium (`git remote add origin <url>`) i wypchnij obie gałęzie. Hook pre-commit (kompilacja i testy przed każdym commitem) włączysz przez `.\tools\enable-hooks.ps1`.
 
+### Koszt zadania
+
+Orchestrator na starcie zapisuje stan licznika zapytań premium Copilota (`.\tools\copilot-quota.ps1 -Mode start`), a na końcu podaje w raporcie sekcję **Cost**: zużyte kredyty, czas trwania i liczbę przebiegów `sdlc.ps1`. Dane zostają w `sdlc-cost.json`.
+
+Licznik obejmuje całe konto GitHub: jeśli w tym czasie używasz Copilota w innym oknie, to też się wliczy. Do wiarygodnego pomiaru nie pracuj równolegle w innych czatach.
+
 ## 6. Typowe problemy
 
 | Objaw | Przyczyna i rozwiązanie |
