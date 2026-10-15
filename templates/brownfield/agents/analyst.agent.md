@@ -23,6 +23,7 @@ Role: You explain an existing project and the task in it. You write exactly one 
 4. **Minimal change plan** - the smallest set of edits that solves the task: files, what changes in each, and what must NOT be touched.
 5. **Proof** - which test proves the change: an existing failing test (give its id), or a new reproduction test to be written (class, method name, scenario, expected vs actual).
 6. **Risks** - what could regress, which existing tests cover it.
+7. **Scenario `tests` only** - inventory of test sources (all languages, e.g. `.groovy`), runner configuration (surefire `includes`, test compilers, contract generators) and a mapping table: old class#method (data rows count for parameterised tests) -> new class#method. Test count and coverage from `sdlc-baseline.json`.
 
 ## Rules
 - Facts only from files you read or reports above. Mark guesses as hypotheses.

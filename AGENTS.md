@@ -38,6 +38,7 @@ Przepływ agentów: orchestrator -> planner (`plan.md`) -> developer -> test-eng
 - `owaspFailOnError` działa tylko przy włączonym OWASP.
 - Token JFrog: zmienna `JF_ACCESS_TOKEN` albo plik `jfrog.token` (w repo głównym generator kopiuje go do projektu). Token Sonara: `SONAR_TOKEN` albo `sonar-token.txt`.
 - `jf` jest instalowany bez uprawnień administratora w `%LOCALAPPDATA%\jfrog-cli\jf.exe`.
+- JDK: domyślny w PATH to 25 (`java-tools\java`), obok są `jdk-21`, `jdk-17`, `jdk-23`, `jdk-11.0.6`, `jdk1.8.0_201`. Od 2026-10-13 `attach-project.ps1` wybiera JDK zgodny z `pom.xml` (`maven.jdksDir` w `project-config.yaml`) i zapisuje `javaHome` w `sdlc-settings.json`; `sdlc.ps1`/`recon.ps1` przełączają się przez `tools/use-java.ps1`. JDK 23+ nie uruchamia Lomboka bez `-proc:full`.
 - Stan `~/.jfrog` (sprawdzone `jf config show`): serwery `sdlc-xray` (używa go `jfrog-scan.ps1`), `prod` i `Default-Server` (domyślny, utworzony przez moje próby diagnostyczne z tokenem z pliku `jfrog.token`). Podczas diagnostyki usuwałem i odtwarzałem wpisy `Default-Server`, więc jego dawna zawartość mogła zostać nadpisana. Użytkownik, który miał własną konfigurację, powinien ją sprawdzić.
 
 ## 4. Procedura monitorowania testu
@@ -109,6 +110,7 @@ $t=(Get-Content sonar-token.txt -Raw).Trim(); $h=@{Authorization="Bearer $t"}
 - Odczyt końcowy: `gates` (`Regression`, `TestIntegrity` = `PASS`), `metrics.diff.changed`, `delta`, `warnings`. Porównaj z sekcją "Kryteria zaliczenia" w `tests\scenarios\<scenariusz>\expected.md`.
 - `sonarfix` wymaga `sonarMaxOpenIssues: 0` w `sdlc-settings.json` (ustawia `attach-project.ps1 -Scenario sonarfix`).
 - Wszystkie scenariusze mają ten sam klucz Sonara (`com.example.shop:shop-service`); uruchamiaj je po kolei, nie równolegle.
+- `tests` (od 2026-10-13): przepływ analyst -> planner -> test-engineer -> verify, bez zmian w `src/main`. Bramka `TestMigration` (liczba wykonanych/zaliczonych testów >= baseline, brak zmian `src/main`); `TestIntegrity` liczy też metody Spock (`.groovy`), a w `tests` zamiana pliku testowego to tylko ostrzeżenie. Tutorial: `doc/tutorial/brownfield-spock-to-junit5.md`.
 - `feature` (od 2026-10-12): `start-scenario.ps1` -> `fetch-project.ps1` (`git clone` z `scenarioRepoUrl`, bez MCP GitLab; istniejący folder pomija, `-Fresh` kasuje i klonuje po potwierdzeniu) -> `attach-project.ps1`. `attach-project.ps1` kopiuje `.vscode/mcp.json` (tylko Jira/Confluence, read-only). Orchestrator dopisuje treść zgłoszenia do `task.md` (`## Source`), przepływ: analyst -> planner -> developer -> test-engineer -> security-reviewer -> verify. Sprawdź: każde kryterium akceptacji ma test, `plan.md` zgodny z konwencjami projektu.
 
 ## 5. Znane odchylenia agentów z sesji 2026-10-08

@@ -26,6 +26,9 @@ maven:
   # Artifact resolution goes through the corporate Artifactory configured in this file.
   # Leave empty to rely on Maven's default ~/.m2/settings.xml.
   settingsFile: "C:\Users\160246\.m2\settings.xml"
+  # Folder with JDKs (it and its subfolders are searched for a 'release' file); attach-project.ps1 picks the one
+  # matching the project's Java version. Empty = java from PATH.
+  jdksDir: "C:\Users\160246\Desktop\java-tools\java"
 
 # SDLC Pipeline Enrichments
 sdlc:

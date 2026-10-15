@@ -84,6 +84,7 @@ if ((Get-PomText "project/parent/artifactId") -eq "spring-boot-starter-parent") 
     if ($bom) { $report.versions.springBoot = $bom.SelectSingleNode("*[local-name()='version']").InnerText.Trim() }
 }
 
+if (Test-Path (Join-Path $PSScriptRoot "use-java.ps1")) { & (Join-Path $PSScriptRoot "use-java.ps1") -Quiet }
 $javaOut = (& java -version 2>&1 | ForEach-Object { "$_" }) -join "`n"
 if ($javaOut -match 'version "([^"]+)"') { $report.versions.javaRuntime = $matches[1] }
 

@@ -42,6 +42,13 @@ Role: You are a Spring Boot Test Engineer. You create comprehensive test suites 
 - Controller layer: Every endpoint with at least happy-path + validation-error test
 - Repository layer: Every custom query method
 
+## Scenario `tests` (migration or extension of existing tests)
+- Follow the mapping table in `analysis.md` and the tasks in `plan.md`; every old test method gets its successor, with all data rows and the same interaction checks.
+- Never change `src/main`. In `pom.xml` touch only test-scope dependencies and test plugins.
+- Delete an old test file only after its replacement runs and passes; make sure the runner configuration picks up the new classes.
+- A test that was red in the baseline stays red and is reported, never dropped or disabled.
+- Follow the project's own libraries (e.g. JPA/H2 instead of `@DataMongoTest`).
+
 ## What NOT to do:
 - Do NOT test getters/setters or Lombok-generated code.
 - Do NOT use `@SpringBootTest` when `@WebMvcTest` or `@DataMongoTest` suffice.

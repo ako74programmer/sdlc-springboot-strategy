@@ -2,6 +2,7 @@
 # LOCAL SDLC PIPELINE (brownfield) - Quality & Security Gates
 #   .\tools\sdlc.ps1 -Baseline           record the starting state (sdlc-baseline.json)
 #   .\tools\sdlc.ps1                     gates + Regression/TestIntegrity/DiffGuard against the baseline
+#                                        (+ TestMigration when sdlc-settings.json scenario is "tests")
 #   .\tools\sdlc.ps1 -ReproTest Cls#m     also prove a bug: the test must be red first, green after the fix
 #   .\tools\sdlc.ps1 -CheckReport        does sdlc-report.json describe the current code? (exit 0 = yes)
 # ==============================================================================
@@ -37,6 +38,7 @@ if (Test-Path "sdlc-settings.json") {
     foreach ($p in (Get-Content "sdlc-settings.json" -Raw | ConvertFrom-Json).PSObject.Properties) { $settings[$p.Name] = $p.Value }
 }
 if (-not $MavenSettings) { $MavenSettings = $settings.mavenSettings }
+if (Test-Path (Join-Path $PSScriptRoot "use-java.ps1")) { & (Join-Path $PSScriptRoot "use-java.ps1") -Quiet }
 
 # Empty = Maven resolves artifacts with its default ~/.m2/settings.xml
 $mvnSettingsArgs = @()
@@ -522,13 +524,15 @@ function Get-RelativePath([string]$fullName) {
 # Per test file: test method names, @Disabled count, assertion count - used to detect weakened tests
 function Get-TestFileFacts {
     $facts = @{}
-    $files = Get-ChildItem -Path . -Recurse -File -Include *.java, *.kt -ErrorAction SilentlyContinue |
+    $files = Get-ChildItem -Path . -Recurse -File -Include *.java, *.kt, *.groovy -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -match '[\\/]src[\\/]test[\\/]' -and $_.FullName -notmatch '[\\/]target[\\/]' }
     foreach ($f in $files) {
         $lines = @(Get-Content $f.FullName)
         $methods = @()
         $pending = $false
         foreach ($l in $lines) {
+            # Spock feature method: def "does something"()
+            if ($l -match '^\s*def\s+(["''])(.+?)\1\s*\(') { $methods += $matches[2]; $pending = $false; continue }
             if ($l -match '^\s*@(Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b') { $pending = $true; continue }
             if ($pending -and $l -notmatch '^\s*@' -and $l -match '\b(\w+)\s*\(') { $methods += $matches[1]; $pending = $false }
         }
@@ -646,22 +650,32 @@ if ($Baseline) {
     # GATE: TestIntegrity - tests must not be deleted, disabled or weakened; no new suppressions
     # ============================================
     $ok = $true
+    # In a test migration old tests are replaced; TestMigration then guards the number of executed tests
+    $migration = ($settings.scenario -eq "tests")
     $nowFacts = Get-TestFileFacts
     if ($base.testFiles) {
         foreach ($p in $base.testFiles.PSObject.Properties) {
             $file = $p.Name; $was = $p.Value
             if (-not $nowFacts.ContainsKey($file)) {
                 if (@($was.methods).Count -gt 0) {
-                    $ok = $false
-                    Add-GateError "TestIntegrity" "Test file deleted" "$file ($(@($was.methods).Count) tests)"
+                    if ($migration) {
+                        $script:gateStatus.warnings += "TestIntegrity: test file replaced (guarded by TestMigration): $file ($(@($was.methods).Count) tests)"
+                    } else {
+                        $ok = $false
+                        Add-GateError "TestIntegrity" "Test file deleted" "$file ($(@($was.methods).Count) tests)"
+                    }
                 }
                 continue
             }
             $now = $nowFacts[$file]
             $missing = @(@($was.methods) | Where-Object { @($now.methods) -notcontains $_ })
             if ($missing.Count -gt 0) {
-                $ok = $false
-                Add-GateError "TestIntegrity" "Test methods removed or renamed" "${file}: $($missing -join ', ')"
+                if ($migration) {
+                    $script:gateStatus.warnings += "TestIntegrity: test methods replaced (guarded by TestMigration): ${file}: $($missing -join ', ')"
+                } else {
+                    $ok = $false
+                    Add-GateError "TestIntegrity" "Test methods removed or renamed" "${file}: $($missing -join ', ')"
+                }
             }
             if ($now.disabled -gt $was.disabled) {
                 $ok = $false
@@ -687,6 +701,7 @@ if ($Baseline) {
     # ============================================
     # GATE: DiffGuard - size of the change against the baseline snapshot
     # ============================================
+    $changed = $null
     if ($base.gitBase -and (Test-GitRepo)) {
         $changed = @{}
         foreach ($line in @(git diff --numstat $base.gitBase 2>$null)) {
@@ -733,6 +748,37 @@ if ($Baseline) {
         $script:gateStatus.gates["DiffGuard"] = "SKIPPED"
     }
 
+    # ============================================
+    # GATE: TestMigration (scenario "tests") - tests may be replaced, never reduced; production code untouched
+    # ============================================
+    if ($migration) {
+        $ok = $true
+        if ($script:gateStatus.gates["Tests"] -in @("PASS", "FAIL")) {
+            $nowTests = $script:gateStatus.metrics.tests
+            if ([int]$nowTests.total -lt [int]$base.tests.total) {
+                $ok = $false
+                Add-GateError "TestMigration" "Fewer executed tests than in baseline" "Baseline: $($base.tests.total), now: $($nowTests.total)"
+            }
+            if ([int]$nowTests.passed -lt [int]$base.tests.passed) {
+                $ok = $false
+                Add-GateError "TestMigration" "Fewer passing tests than in baseline" "Baseline: $($base.tests.passed), now: $($nowTests.passed)"
+            }
+        } else {
+            $ok = $false
+            Add-GateError "TestMigration" "Tests did not run" "Test count cannot be compared with the baseline"
+        }
+        if ($null -ne $changed) {
+            $prodChanged = @($changed.Keys | Where-Object { $_ -match '(^|/)src/main/' } | Sort-Object)
+            if ($prodChanged.Count -gt 0) {
+                $ok = $false
+                Add-GateError "TestMigration" "Production code changed in a tests scenario" ($prodChanged -join ', ')
+            }
+        } else {
+            $script:gateStatus.warnings += "TestMigration: no git baseline - src/main changes not checked"
+        }
+        Set-Gate "TestMigration" $ok
+    }
+
     $script:gateStatus.delta = @{
         testsPassed     = $script:gateStatus.metrics.tests.passed - [int]$base.tests.passed
         coverageLine    = if ($null -ne $script:gateStatus.metrics.coverage.line -and $null -ne $base.coverage.line) { [math]::Round([double]$script:gateStatus.metrics.coverage.line - [double]$base.coverage.line, 1) } else { $null }
@@ -742,6 +788,7 @@ if ($Baseline) {
     Write-Host "`n    No $baselineFile - Regression/TestIntegrity/DiffGuard skipped. Run .\tools\sdlc.ps1 -Baseline before changing code." -ForegroundColor DarkYellow
     $script:gateStatus.warnings += "No baseline recorded - Regression, TestIntegrity and DiffGuard were skipped"
     foreach ($g in @("Regression", "TestIntegrity", "DiffGuard")) { $script:gateStatus.gates[$g] = "SKIPPED" }
+    if ($settings.scenario -eq "tests") { $script:gateStatus.gates["TestMigration"] = "SKIPPED" }
 }
 
 # ============================================

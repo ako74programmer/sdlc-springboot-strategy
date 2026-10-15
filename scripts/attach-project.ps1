@@ -114,6 +114,7 @@ try {
 Write-Host "`n[2/6] SDLC tools and agents (missing files only)" -ForegroundColor Yellow
 Add-ProjectFile (Join-Path $templates "sdlc.ps1") "tools\sdlc.ps1"
 Add-ProjectFile (Join-Path $templates "recon.ps1") "tools\recon.ps1"
+Add-ProjectFile (Join-Path $templates "use-java.ps1") "tools\use-java.ps1"
 Add-ProjectFile (Join-Path $repoRoot "templates\shared\copilot-quota.ps1") "tools\copilot-quota.ps1"
 foreach ($agent in Get-ChildItem (Join-Path $templates "agents") -File) {
     Add-ProjectFile $agent.FullName ".github\agents\$($agent.Name)"
@@ -139,13 +140,49 @@ foreach ($secret in @("jfrog.token", "sonar-token.txt")) {
 }
 
 # --- 3. Maven (brownfield sdlc.ps1 falls back to mvn when there is no wrapper) ---
-Write-Host "`n[3/6] Maven" -ForegroundColor Yellow
+Write-Host "`n[3/6] Maven and Java" -ForegroundColor Yellow
 if (Test-Path (Join-Path $projectPath "mvnw.cmd")) {
     Write-Host "    Maven Wrapper present" -ForegroundColor Green
 } elseif (Get-Command mvn -ErrorAction SilentlyContinue) {
     Write-Host "    No Maven Wrapper - tools use mvn from PATH" -ForegroundColor Green
 } else {
     Write-Host "    No Maven Wrapper and no mvn on PATH - tools/sdlc.ps1 will not run. Install Maven." -ForegroundColor Red
+}
+
+# A newer JDK than the project's breaks builds (e.g. JDK 23+ no longer runs Lombok implicitly)
+function Get-JavaMajor([string]$version) {
+    if ($version -match '^1\.(\d+)') { return [int]$matches[1] }
+    if ($version -match '^(\d+)') { return [int]$matches[1] }
+    return $null
+}
+$javaHome = ""
+[xml]$pomForJava = [IO.File]::ReadAllText((Join-Path $projectPath "pom.xml"))
+$javaDeclared = $null
+foreach ($prop in @("java.version", "maven.compiler.release", "maven.compiler.source")) {
+    $node = $pomForJava.SelectSingleNode("/*[local-name()='project']/*[local-name()='properties']/*[local-name()='$prop']")
+    if ($node -and $node.InnerText.Trim()) { $javaDeclared = $node.InnerText.Trim(); break }
+}
+$javaMajor = Get-JavaMajor $javaDeclared
+$jdksDir = $projectCfg["jdksDir"]
+if (-not $javaMajor) {
+    Write-Host "    Java version not declared in pom.xml - tools use java from PATH" -ForegroundColor DarkYellow
+} elseif (-not $jdksDir -or -not (Test-Path $jdksDir)) {
+    Write-Host "    Project needs Java $javaMajor; jdksDir not set or missing - tools use java from PATH" -ForegroundColor DarkYellow
+} else {
+    $candidates = @(Get-Item $jdksDir) + @(Get-ChildItem $jdksDir -Directory | Sort-Object Name -Descending)
+    foreach ($dir in $candidates) {
+        $release = Join-Path $dir.FullName "release"
+        if ((Test-Path $release) -and (Test-Path (Join-Path $dir.FullName "bin\java.exe")) -and
+            (Get-Content $release -Raw) -match 'JAVA_VERSION="([^"]+)"' -and (Get-JavaMajor $matches[1]) -eq $javaMajor) {
+            $javaHome = $dir.FullName
+            break
+        }
+    }
+    if ($javaHome) {
+        Write-Host "    Java $javaMajor (from pom.xml): $javaHome" -ForegroundColor Green
+    } else {
+        Write-Host "    No JDK $javaMajor in $jdksDir - tools use java from PATH" -ForegroundColor DarkYellow
+    }
 }
 
 # --- 4. JaCoCo (measurement only) ----------------------------------------------
@@ -266,6 +303,7 @@ function Get-CfgNumber([string]$key, $default) {
 $sdlcSettings = [ordered]@{
     scenario              = $Scenario
     mavenSettings         = $(if ($MavenSettings) { (Resolve-Path $MavenSettings).Path } else { "" })
+    javaHome              = $javaHome
     diffGuardMaxFiles     = Get-CfgNumber "diffGuardMaxFiles" 15
     diffGuardMaxLines     = Get-CfgNumber "diffGuardMaxLines" 400
     diffGuardMode         = $(if ($scenarioCfg["diffGuardMode"]) { $scenarioCfg["diffGuardMode"] } else { "warn" })
