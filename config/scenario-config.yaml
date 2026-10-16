@@ -8,12 +8,16 @@ projectsDir: projects
 
 # greenfield | buildfix | bugfix | sonarfix | vulnfix | refactor | feature | tests | migration | review
 # Pick by what changes: only src/test -> tests; src/main without behaviour change -> refactor;
-# platform/framework version -> migration. Guide: doc/tutorial/brownfield-spock-to-junit5.md
-scenarioType: tests
+# platform/framework version -> migration. Guides: doc/tutorial/brownfield-spock-to-junit5.md, brownfield-springboot3-to-4.md
+scenarioType: migration
 # Folder name inside projectsDir (ignored for greenfield)
 scenarioProject: "icbs-insurances"
 # Optional: start-scenario.ps1 runs git clone into projectsDir/scenarioProject when the folder is missing
 scenarioRepoUrl: "https://gitlab.centrala.bzwbk/icbs/insurancesv1.git"
+
+# Migration targets (scenarioType: migration) - checked by the MigrationGuard gate; the JDK of migrationJavaVersion is used
+migrationBootVersion: 4.1.1
+migrationJavaVersion: 25
 
 # Limits (used by the orchestrator from Phase 2 on)
 maxFixIterations: 5
@@ -21,7 +25,7 @@ maxOfficialCiAttempts: 2
 sameGateStopAfter: 3
 
 # Brownfield gates (copied into the project as sdlc-settings.json by attach-project.ps1)
-diffGuardMaxFiles: 200            # 15 for fixes, 40 for a feature, test migration replaces every Spec file
+diffGuardMaxFiles: 200            # 15 for fixes, 40 for a feature, 200 for a test or platform migration
 diffGuardMaxLines: 12000          # 400 for fixes, 1500 for a feature
 diffGuardMode: warn               # warn | fail
 coverageTolerance: 0.0            # allowed drop of line coverage vs baseline, in percentage points

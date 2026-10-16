@@ -1,11 +1,13 @@
 # ==============================================================================
 # ATTACH AN EXISTING PROJECT (brownfield) TO THE LOCAL SDLC TOOLING
 # Works on a folder the user downloaded into <projectsDir>/<Project>.
-# Never clones, never deletes, never calls generate-project.ps1, never overwrites existing files.
+# Never clones, never deletes, never calls generate-project.ps1, never overwrites existing files
+# (except -NewTask: refreshes tools/agents from templates and moves the previous task's files to sdlc-history/).
 #
 # Usage:
 #   .\scripts\attach-project.ps1 -Project my-legacy-app
 #   .\scripts\attach-project.ps1 -Project my-legacy-app -NoBranch -SkipRecon
+#   .\scripts\attach-project.ps1 -Project my-legacy-app -Scenario migration -NewTask   (next task on an attached project)
 # ==============================================================================
 Param(
     [Parameter(Mandatory = $true)][string]$Project,
@@ -17,7 +19,8 @@ Param(
     [string]$MavenSettings = $env:MAVEN_SETTINGS,
     [switch]$NoBranch,
     [switch]$NoJacoco,
-    [switch]$SkipRecon
+    [switch]$SkipRecon,
+    [switch]$NewTask
 )
 
 $ErrorActionPreference = "Stop"
@@ -43,6 +46,7 @@ function Read-FlatYaml([string]$file) {
 
 $scenarioCfg = Read-FlatYaml (Join-Path $repoRoot $ScenarioConfig)
 $projectCfg = Read-FlatYaml (Join-Path $repoRoot $ProjectConfig)
+if (-not $Scenario) { $Scenario = $scenarioCfg["scenarioType"] }
 
 $projectsDir = if ($ProjectsDir) { $ProjectsDir } elseif ($scenarioCfg["projectsDir"]) { $scenarioCfg["projectsDir"] } else { "projects" }
 $projectPath = Join-Path (Join-Path $repoRoot $projectsDir) $Project
@@ -69,15 +73,15 @@ $added = New-Object System.Collections.Generic.List[string]
 $skipped = New-Object System.Collections.Generic.List[string]
 $pomModified = $false
 
-# Copies one file only when the target does not exist yet
-function Add-ProjectFile([string]$source, [string]$relativeTarget) {
+# Copies one file only when the target does not exist yet (-Overwrite: always, for tool and agent updates)
+function Add-ProjectFile([string]$source, [string]$relativeTarget, [switch]$Overwrite) {
     $target = Join-Path $projectPath $relativeTarget
-    if (Test-Path $target) {
+    if ((Test-Path $target) -and -not $Overwrite) {
         $skipped.Add($relativeTarget)
         return
     }
     New-Item -ItemType Directory -Path (Split-Path $target -Parent) -Force | Out-Null
-    Copy-Item $source -Destination $target
+    Copy-Item $source -Destination $target -Force
     $added.Add($relativeTarget.Replace('\', '/'))
 }
 
@@ -111,20 +115,32 @@ try {
 }
 
 # --- 2. Tools, agents, instructions -------------------------------------------
-Write-Host "`n[2/6] SDLC tools and agents (missing files only)" -ForegroundColor Yellow
-Add-ProjectFile (Join-Path $templates "sdlc.ps1") "tools\sdlc.ps1"
-Add-ProjectFile (Join-Path $templates "recon.ps1") "tools\recon.ps1"
-Add-ProjectFile (Join-Path $templates "use-java.ps1") "tools\use-java.ps1"
-Add-ProjectFile (Join-Path $repoRoot "templates\shared\copilot-quota.ps1") "tools\copilot-quota.ps1"
-foreach ($agent in Get-ChildItem (Join-Path $templates "agents") -File) {
-    Add-ProjectFile $agent.FullName ".github\agents\$($agent.Name)"
+if ($NewTask) {
+    # The orchestrator must start from a clean slate: its own baseline, analysis and plan
+    $history = Join-Path $projectPath ("sdlc-history\" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+    $taskFiles = @("task.md", "analysis.md", "plan.md", "security-review.md", "recon-report.json", "sdlc-baseline.json",
+        "sdlc-report.json", "sdlc-repro.json", "sdlc-cost.json", "sdlc-run.log")
+    $moved = @($taskFiles | Where-Object { Test-Path (Join-Path $projectPath $_) })
+    if ($moved.Count -gt 0) {
+        New-Item -ItemType Directory -Path $history -Force | Out-Null
+        foreach ($f in $moved) { Move-Item (Join-Path $projectPath $f) $history }
+        Write-Host "`n    -NewTask: previous task files moved to $history ($($moved -join ', '))" -ForegroundColor Green
+    }
 }
-Add-ProjectFile (Join-Path $templates "copilot-instructions.md") ".github\copilot-instructions.md"
+Write-Host "`n[2/6] SDLC tools and agents ($(if ($NewTask) { 'refreshed from templates' } else { 'missing files only' }))" -ForegroundColor Yellow
+Add-ProjectFile (Join-Path $templates "sdlc.ps1") "tools\sdlc.ps1" -Overwrite:$NewTask
+Add-ProjectFile (Join-Path $templates "recon.ps1") "tools\recon.ps1" -Overwrite:$NewTask
+Add-ProjectFile (Join-Path $templates "use-java.ps1") "tools\use-java.ps1" -Overwrite:$NewTask
+Add-ProjectFile (Join-Path $repoRoot "templates\shared\copilot-quota.ps1") "tools\copilot-quota.ps1" -Overwrite:$NewTask
+foreach ($agent in Get-ChildItem (Join-Path $templates "agents") -File) {
+    Add-ProjectFile $agent.FullName ".github\agents\$($agent.Name)" -Overwrite:$NewTask
+}
+Add-ProjectFile (Join-Path $templates "copilot-instructions.md") ".github\copilot-instructions.md" -Overwrite:$NewTask
 # Jira/Confluence read-only, so the orchestrator can fetch the task text
 Add-ProjectFile (Join-Path $templates "mcp.json") ".vscode\mcp.json"
 
 if ($projectCfg["enableXray"] -eq "true" -and $projectCfg["xrayUrl"]) {
-    Add-ProjectFile (Join-Path $templates "jfrog-scan.ps1") "tools\jfrog-scan.ps1"
+    Add-ProjectFile (Join-Path $templates "jfrog-scan.ps1") "tools\jfrog-scan.ps1" -Overwrite:$NewTask
     $xrayProps = Join-Path $projectPath "jfrog-xray.properties"
     if (-not (Test-Path $xrayProps)) {
         $content = "url=$($projectCfg['xrayUrl'])`nwatches=$($projectCfg['xrayWatches'])`ninsecureTls=$($projectCfg['xrayInsecureTls'])`n"
@@ -163,6 +179,10 @@ foreach ($prop in @("java.version", "maven.compiler.release", "maven.compiler.so
     if ($node -and $node.InnerText.Trim()) { $javaDeclared = $node.InnerText.Trim(); break }
 }
 $javaMajor = Get-JavaMajor $javaDeclared
+# A migration builds on the target JDK; a newer JDK also compiles the old release level
+if ($Scenario -eq "migration" -and $scenarioCfg["migrationJavaVersion"]) {
+    $javaMajor = Get-JavaMajor $scenarioCfg["migrationJavaVersion"]
+}
 $jdksDir = $projectCfg["jdksDir"]
 if (-not $javaMajor) {
     Write-Host "    Java version not declared in pom.xml - tools use java from PATH" -ForegroundColor DarkYellow
@@ -179,7 +199,7 @@ if (-not $javaMajor) {
         }
     }
     if ($javaHome) {
-        Write-Host "    Java $javaMajor (from pom.xml): $javaHome" -ForegroundColor Green
+        Write-Host "    Java $javaMajor ($(if ($Scenario -eq 'migration' -and $scenarioCfg['migrationJavaVersion']) { 'migration target' } else { 'from pom.xml' })): $javaHome" -ForegroundColor Green
     } else {
         Write-Host "    No JDK $javaMajor in $jdksDir - tools use java from PATH" -ForegroundColor DarkYellow
     }
@@ -313,16 +333,29 @@ $sdlcSettings = [ordered]@{
     maxOfficialCiAttempts = Get-CfgNumber "maxOfficialCiAttempts" 2
     sameGateStopAfter     = Get-CfgNumber "sameGateStopAfter" 3
 }
+if ($Scenario -eq "migration") {
+    $sdlcSettings.migrationBootVersion = $scenarioCfg["migrationBootVersion"]
+    $sdlcSettings.migrationJavaVersion = $scenarioCfg["migrationJavaVersion"]
+}
 $sdlcSettings | ConvertTo-Json | Set-Content -Path (Join-Path $projectPath "sdlc-settings.json") -Encoding UTF8
 Write-Host "    sdlc-settings.json written (scenario: $(if ($Scenario) { $Scenario } else { 'not set' }))" -ForegroundColor Green
+$manifestFile = Join-Path $projectPath "sdlc-attach.json"
+$manifestAdded = New-Object System.Collections.Generic.List[string]
+foreach ($a in $added) { $manifestAdded.Add($a) }
+$previous = $null
+# Re-attaching must not forget what an earlier attach added
+if (Test-Path $manifestFile) {
+    $previous = Get-Content $manifestFile -Raw | ConvertFrom-Json
+    foreach ($a in @($previous.added)) { if ($a -and -not $manifestAdded.Contains($a)) { $manifestAdded.Add($a) } }
+}
 $manifest = [ordered]@{
     attachedAt  = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
     project     = $Project
-    added       = @($added)
+    added       = @($manifestAdded)
     skipped     = @($skipped)
-    pomModified = $pomModified
+    pomModified = ($pomModified -or [bool]$previous.pomModified)
 }
-$manifest | ConvertTo-Json -Depth 3 | Set-Content -Path (Join-Path $projectPath "sdlc-attach.json") -Encoding UTF8
+$manifest | ConvertTo-Json -Depth 3 | Set-Content -Path $manifestFile -Encoding UTF8
 
 if ($isGit) {
     Push-Location $projectPath
@@ -331,7 +364,7 @@ if ($isGit) {
         New-Item -ItemType Directory -Path (Split-Path $excludeFile -Parent) -Force | Out-Null
         $existing = @(if (Test-Path $excludeFile) { Get-Content $excludeFile })
         $wanted = @($added) + @("sdlc-attach.json", "sdlc-settings.json", "sdlc-report.json", "sdlc-baseline.json", "sdlc-repro.json", "sdlc-cost.json",
-            "recon-report.json", "sdlc-run.log", "task.md", "analysis.md", "plan.md", "security-review.md", "*.token", "sonar-token.txt")
+            "recon-report.json", "sdlc-run.log", "task.md", "analysis.md", "plan.md", "security-review.md", "*.token", "sonar-token.txt", "sdlc-history/")
         $missing = @($wanted | Select-Object -Unique | ForEach-Object { "/" + $_.TrimStart('/') } |
             Where-Object { $existing -notcontains $_ })
         if ($missing.Count -gt 0) {

@@ -111,6 +111,7 @@ $t=(Get-Content sonar-token.txt -Raw).Trim(); $h=@{Authorization="Bearer $t"}
 - `sonarfix` wymaga `sonarMaxOpenIssues: 0` w `sdlc-settings.json` (ustawia `attach-project.ps1 -Scenario sonarfix`).
 - Wszystkie scenariusze mają ten sam klucz Sonara (`com.example.shop:shop-service`); uruchamiaj je po kolei, nie równolegle.
 - `tests` (od 2026-10-13): przepływ analyst -> planner -> test-engineer -> verify, bez zmian w `src/main`. Bramka `TestMigration` (liczba wykonanych/zaliczonych testów >= baseline, brak zmian `src/main`); `TestIntegrity` liczy też metody Spock (`.groovy`), a w `tests` zamiana pliku testowego to tylko ostrzeżenie. Tutorial: `doc/tutorial/brownfield-spock-to-junit5.md`.
+- `migration` (od 2026-10-15): analyst -> planner -> developer -> test-engineer -> (security-reviewer) -> verify. Bramka `MigrationGuard`: `pom.xml` ma `migrationBootVersion`/`migrationJavaVersion` z `scenario-config.yaml`, testów nie mniej niż w baseline. JDK = `migrationJavaVersion`. Kolejne zadanie na podpiętym projekcie: `start-scenario.ps1 -NewTask` (archiwum w `sdlc-history/`, odświeżenie narzędzi). Tutorial: `doc/tutorial/brownfield-springboot3-to-4.md`.
 - `feature` (od 2026-10-12): `start-scenario.ps1` -> `fetch-project.ps1` (`git clone` z `scenarioRepoUrl`, bez MCP GitLab; istniejący folder pomija, `-Fresh` kasuje i klonuje po potwierdzeniu) -> `attach-project.ps1`. `attach-project.ps1` kopiuje `.vscode/mcp.json` (tylko Jira/Confluence, read-only). Orchestrator dopisuje treść zgłoszenia do `task.md` (`## Source`), przepływ: analyst -> planner -> developer -> test-engineer -> security-reviewer -> verify. Sprawdź: każde kryterium akceptacji ma test, `plan.md` zgodny z konwencjami projektu.
 
 ## 5. Znane odchylenia agentów z sesji 2026-10-08
@@ -121,6 +122,10 @@ $t=(Get-Content sonar-token.txt -Raw).Trim(); $h=@{Authorization="Bearer $t"}
 
 ## 6. Pułapki narzędziowe (żeby ich nie powtarzać)
 
+- Sesja 2026-10-15 (`tests`, icbs-insurances): orchestrator sam edytował `pom.xml` (poprawki Xray) przed powstaniem planu i odczytał hasło z `~/.m2/settings.xml`, żeby pytać Artifactory (Basic auth, `curl -k`). Od tej sesji zabraniają tego agent i `copilot-instructions.md` (pkt 12); wersje sprawdza się przez `mvn dependency:get` / `versions:display-dependency-updates`.
+- Spock raportuje dla funkcji z `where:` dodatkowy wpis zbiorczy (nazwa z `#zmienna` albo bez `[..]`). `TestMigration`/`MigrationGuard` ich nie liczą; przy ręcznym porównaniu też je pomijaj.
+- `mvn verify` bez `clean` zostawia stare `TEST-*.xml` (np. 239 zamiast 237). Liczy się raport `sdlc.ps1`, który robi `clean`.
+- Build, który nadpisuje śledzony plik (springdoc -> `insurances.yaml`), trafiał do migawki baseline. Od 2026-10-15 migawka powstaje przed buildem.
 - `jf scan` zwraca kod 0 mimo naruszeń watcha bez akcji blokującej. Werdykt liczy `jfrog-scan.ps1` (każdy wpis w `violations` lub `vulnerabilities` to błąd); `jf scan` jest wołany z `--fail=false`.
 - Xray "no fix available" dotyczy tylko skanowanej wersji, nie znaczy, że poprawki nie ma. Sesja 2026-10-09: 8 takich CVE Tomcata 11.0.24 zniknęło po podbiciu do 11.0.26 (nadpisanie dla innych CVE). Przed zgłoszeniem blokady podbij wersję i przeskanuj ponownie.
 - Flagi logiczne `jf` podawaj jako `--insecure-tls=true`. Bez wartości `jf config add` kończy się błędem.
@@ -133,6 +138,8 @@ $t=(Get-Content sonar-token.txt -Raw).Trim(); $h=@{Authorization="Bearer $t"}
 - Regeneracja (`generate-project.ps1`) kasuje cały katalog projektu, w tym zaimplementowany kod. Do testów generatora użyj `-OutputDir scratch\gen` i usuń katalog po teście.
 - Sonar: `api/ce/component` pokazuje w `current` ostatnie zakończone zadanie, a nowe czeka w `queue`. Wynik Quality Gate i problemy trzeba wiązać z `ceTaskId` z `target/sonar/report-task.txt` (`api/ce/task`, potem `project_status?analysisId=`). Do 2026-10-12 `sdlc.ps1` czytał wynik poprzedniej analizy, a baseline miał 0 problemów. Brownfield `Regression` porównuje teraz klucze problemów (`sonarIssueKeys` w baseline).
 - Xray jest bramką obowiązkową (CI/CD). Agenci nie mogą traktować podatności zależności jako "poza zakresem" ani pytać o `-SkipXray`.
+- Sesja 2026-10-16 (`migration`, icbs-insurances, PASSED): podnosząc wersję Javy, Sonar włącza nowe reguły na niezmienionym kodzie (`S7467`, nullability Spring 7). Od tej sesji `Regression` w `migration` blokuje tylko zgłoszenia na zmienionych liniach (`git diff -U0` od `gitBase`), resztę daje do `warnings`. SCC 5 pomija "aktualne" testy kontraktowe (`incrementalContractTests=false`). H2 2.4.240 psuje CHECK z Hibernate 7.
+- Monitorując, nie podsuwaj użytkownikowi gotowych odpowiedzi dla agenta, chyba że o to prosi. Moja podpowiedź "porównaj JSON z insurances.yaml" trafiła do decyzji i skończyła się pobraniem danych klientów z AS400.
 
 ## 7. Co jeszcze nie zostało zweryfikowane
 

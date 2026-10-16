@@ -26,3 +26,9 @@ Role: You change production code (`src/main`) of a project you did not write. Th
 - Do not add dependencies unless the plan says so.
 - New endpoints: malformed JSON, wrong HTTP method and wrong `Content-Type` must give 400 / 405 / 415, not 500 from a catch-all `@ExceptionHandler(Exception.class)` (see `.github/copilot-instructions.md`, point 9).
 - Report: files changed and one line per change explaining why.
+
+## Scenario `migration`
+- You own `pom.xml` and `src/main`. Follow the order in `plan.md`: build file first, then compile errors, then configuration properties.
+- Remove explicit version pins that the new BOM manages; keep a pin only with a comment saying why (CVE, missing release).
+- Replace removed or moved APIs with their documented successors; keep behaviour identical. If identical behaviour is impossible, stop and report.
+- Do not touch `src/test`: `test-engineer` adapts tests in the next step. Verify with `.\tools\sdlc.ps1 -SkipSonar -SkipXray`; failing tests caused by moved test APIs are expected at this point and must be listed in your report.

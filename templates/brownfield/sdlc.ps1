@@ -2,7 +2,7 @@
 # LOCAL SDLC PIPELINE (brownfield) - Quality & Security Gates
 #   .\tools\sdlc.ps1 -Baseline           record the starting state (sdlc-baseline.json)
 #   .\tools\sdlc.ps1                     gates + Regression/TestIntegrity/DiffGuard against the baseline
-#                                        (+ TestMigration when sdlc-settings.json scenario is "tests")
+#                                        (+ TestMigration when sdlc-settings.json scenario is "tests", MigrationGuard for "migration")
 #   .\tools\sdlc.ps1 -ReproTest Cls#m     also prove a bug: the test must be red first, green after the fix
 #   .\tools\sdlc.ps1 -CheckReport        does sdlc-report.json describe the current code? (exit 0 = yes)
 # ==============================================================================
@@ -96,6 +96,16 @@ if ($CheckReport) {
     exit 1
 }
 $gateStatus.workTreeHash = Get-WorkTreeHash
+
+# Taken before the build: files the build rewrites (e.g. springdoc output) must not end up in the baseline snapshot
+$preBuildGitBase = $null
+if ($Baseline) {
+    $null = git rev-parse --is-inside-work-tree 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $preBuildGitBase = git stash create 2>$null
+        if (-not $preBuildGitBase) { $preBuildGitBase = git rev-parse HEAD 2>$null }
+    }
+}
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "          LOCAL SDLC PIPELINE           " -ForegroundColor Cyan
@@ -580,12 +590,10 @@ if ($Baseline) {
     # ============================================
     # -Baseline: record the starting point; failing legacy tests are recorded, not judged
     # ============================================
-    $gitBase = $null
-    if (Test-GitRepo) {
+    $gitBase = $preBuildGitBase
+    if ($gitBase) {
         # stash create snapshots tracked changes (e.g. JaCoCo added by attach) without touching the working tree
-        $gitBase = git stash create 2>$null
-        if (-not $gitBase) { $gitBase = git rev-parse HEAD 2>$null }
-        if ($gitBase) { git update-ref refs/sdlc/baseline $gitBase 2>$null }
+        git update-ref refs/sdlc/baseline $gitBase 2>$null
     }
     $baselineData = [ordered]@{
         createdAt           = $script:gateStatus.timestamp
@@ -633,9 +641,37 @@ if ($Baseline) {
             # Issue keys survive Sonar's issue tracking, so only issues absent from the baseline count as new
             $known = @{}
             foreach ($k in @($base.sonarIssueKeys)) { $known[$k] = $true }
+            # In a platform migration the new Java level / library annotations activate rules on untouched code;
+            # only issues on lines changed by this task block, the rest is reported for a separate sonarfix task
+            $changedLines = $null
+            if ($settings.scenario -eq "migration" -and $base.gitBase -and (Test-GitRepo)) {
+                $changedLines = @{}
+                $file = $null
+                foreach ($dl in @(git diff -U0 $base.gitBase -- src 2>$null)) {
+                    if ($dl -match '^\+\+\+ b/(.+)$') { $file = $Matches[1]; $changedLines[$file] = @() }
+                    elseif ($file -and $dl -match '^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@') {
+                        $start = [int]$Matches[1]; $len = if ($Matches[2]) { [int]$Matches[2] } else { 1 }
+                        if ($len -gt 0) { $changedLines[$file] += , @($start, ($start + $len - 1)) }
+                    }
+                }
+                foreach ($f in @(git ls-files --others --exclude-standard -- src 2>$null)) { $changedLines[$f] = @(, @(1, [int]::MaxValue)) }
+            }
             foreach ($i in @($script:sonarIssues | Where-Object { -not $known.ContainsKey($_.key) })) {
-                $ok = $false
-                Add-GateError "Regression" "New SonarQube issue [$($i.severity) $($i.type)] $($i.rule)" "$($i.component -replace '^[^:]*:[^:]*:', ''):$($i.line) $($i.message)"
+                $path = $i.component -replace '^[^:]*:[^:]*:', ''
+                $where = "${path}:$($i.line) $($i.message)"
+                $onChangedLine = $true
+                if ($null -ne $changedLines) {
+                    $onChangedLine = $false
+                    if ($changedLines.ContainsKey($path) -and $i.line) {
+                        foreach ($r in $changedLines[$path]) { if ([int]$i.line -ge $r[0] -and [int]$i.line -le $r[1]) { $onChangedLine = $true; break } }
+                    }
+                }
+                if ($onChangedLine) {
+                    $ok = $false
+                    Add-GateError "Regression" "New SonarQube issue [$($i.severity) $($i.type)] $($i.rule)" $where
+                } else {
+                    $script:gateStatus.warnings += "Regression: SonarQube issue on unchanged code after the platform upgrade (not blocking; fix in a sonarfix task) [$($i.severity) $($i.type)] $($i.rule) $where"
+                }
             }
         } elseif ($null -ne $sonarNow -and $null -ne $base.sonarOpenIssues -and [int]$sonarNow -gt [int]$base.sonarOpenIssues) {
             $ok = $false
@@ -726,7 +762,7 @@ if ($Baseline) {
         if ($changed.ContainsKey("pom.xml")) {
             $script:gateStatus.warnings += "DiffGuard: pom.xml changed - expected for vulnfix/migration/buildfix, suspicious otherwise"
         }
-        $testsTouched = @($changed.Keys | Where-Object { $_ -match '(^|/)src/test/' -and $base.testFiles.PSObject.Properties.Name -contains $_ })
+        $testsTouched = @($changed.Keys | Where-Object { $_ -match '(^|/)src/test/' -and (Test-Path $_) -and $base.testFiles.PSObject.Properties.Name -contains $_ })
         if ($testsTouched.Count -gt 0) {
             $script:gateStatus.warnings += "DiffGuard: existing test files modified: $($testsTouched -join ', ')"
         }
@@ -749,34 +785,69 @@ if ($Baseline) {
     }
 
     # ============================================
-    # GATE: TestMigration (scenario "tests") - tests may be replaced, never reduced; production code untouched
+    # GATE: TestMigration (scenario "tests") / MigrationGuard (scenario "migration")
+    # Tests may be replaced or adapted, never reduced
     # ============================================
-    if ($migration) {
+    $platformMigration = ($settings.scenario -eq "migration")
+    if ($migration -or $platformMigration) {
+        $gate = if ($migration) { "TestMigration" } else { "MigrationGuard" }
         $ok = $true
+        # Spock reports an unrolled feature once more as a container: "<feature>" next to "<feature> [..]", or with unresolved #placeholders
+        $byClass = @{}
+        foreach ($k in $baseCases.Keys) {
+            $parts = $k -split '#', 2
+            if (-not $byClass.ContainsKey($parts[0])) { $byClass[$parts[0]] = New-Object System.Collections.Generic.List[string] }
+            $byClass[$parts[0]].Add($parts[1])
+        }
+        $containers = @($baseCases.Keys | Where-Object {
+                $parts = $_ -split '#', 2
+                $m = $parts[1]
+                ($m -match '#[A-Za-z_]\w*') -or @($byClass[$parts[0]] | Where-Object { $_ -ne $m -and $_.StartsWith("$m [") }).Count -gt 0
+            })
+        $baseTotal = [int]$base.tests.total - $containers.Count
+        $basePassed = [int]$base.tests.passed - @($containers | Where-Object { $baseCases[$_] -eq "passed" }).Count
         if ($script:gateStatus.gates["Tests"] -in @("PASS", "FAIL")) {
             $nowTests = $script:gateStatus.metrics.tests
-            if ([int]$nowTests.total -lt [int]$base.tests.total) {
+            $note = if ($containers.Count) { " ($($containers.Count) Spock container entries not counted)" } else { "" }
+            if ([int]$nowTests.total -lt $baseTotal) {
                 $ok = $false
-                Add-GateError "TestMigration" "Fewer executed tests than in baseline" "Baseline: $($base.tests.total), now: $($nowTests.total)"
+                Add-GateError $gate "Fewer executed tests than in baseline" "Baseline: $baseTotal$note, now: $($nowTests.total)"
             }
-            if ([int]$nowTests.passed -lt [int]$base.tests.passed) {
+            if ([int]$nowTests.passed -lt $basePassed) {
                 $ok = $false
-                Add-GateError "TestMigration" "Fewer passing tests than in baseline" "Baseline: $($base.tests.passed), now: $($nowTests.passed)"
+                Add-GateError $gate "Fewer passing tests than in baseline" "Baseline: $basePassed$note, now: $($nowTests.passed)"
             }
         } else {
             $ok = $false
-            Add-GateError "TestMigration" "Tests did not run" "Test count cannot be compared with the baseline"
+            Add-GateError $gate "Tests did not run" "Test count cannot be compared with the baseline"
         }
-        if ($null -ne $changed) {
-            $prodChanged = @($changed.Keys | Where-Object { $_ -match '(^|/)src/main/' } | Sort-Object)
-            if ($prodChanged.Count -gt 0) {
-                $ok = $false
-                Add-GateError "TestMigration" "Production code changed in a tests scenario" ($prodChanged -join ', ')
+        if ($migration) {
+            if ($null -ne $changed) {
+                $prodChanged = @($changed.Keys | Where-Object { $_ -match '(^|/)src/main/' } | Sort-Object)
+                if ($prodChanged.Count -gt 0) {
+                    $ok = $false
+                    Add-GateError $gate "Production code changed in a tests scenario" ($prodChanged -join ', ')
+                }
+            } else {
+                $script:gateStatus.warnings += "TestMigration: no git baseline - src/main changes not checked"
             }
         } else {
-            $script:gateStatus.warnings += "TestMigration: no git baseline - src/main changes not checked"
+            # The migration is done only when pom.xml declares the target versions
+            [xml]$pomNow = Get-Content "pom.xml" -Raw
+            $pomValue = { param($path) $n = $pomNow.SelectSingleNode("/" + (($path -split '/' | ForEach-Object { "*[local-name()='$_']" }) -join '/')); if ($n) { $n.InnerText.Trim() } }
+            $bootNow = & $pomValue "project/parent/version"
+            $javaNow = & $pomValue "project/properties/java.version"
+            if (-not $javaNow) { $javaNow = & $pomValue "project/properties/maven.compiler.release" }
+            if ($settings.migrationBootVersion -and $bootNow -ne $settings.migrationBootVersion) {
+                $ok = $false
+                Add-GateError $gate "Spring Boot version is not the migration target" "pom.xml parent: $bootNow, target: $($settings.migrationBootVersion)"
+            }
+            if ($settings.migrationJavaVersion -and $javaNow -ne "$($settings.migrationJavaVersion)") {
+                $ok = $false
+                Add-GateError $gate "Java version is not the migration target" "pom.xml: $javaNow, target: $($settings.migrationJavaVersion)"
+            }
         }
-        Set-Gate "TestMigration" $ok
+        Set-Gate $gate $ok
     }
 
     $script:gateStatus.delta = @{
@@ -789,6 +860,7 @@ if ($Baseline) {
     $script:gateStatus.warnings += "No baseline recorded - Regression, TestIntegrity and DiffGuard were skipped"
     foreach ($g in @("Regression", "TestIntegrity", "DiffGuard")) { $script:gateStatus.gates[$g] = "SKIPPED" }
     if ($settings.scenario -eq "tests") { $script:gateStatus.gates["TestMigration"] = "SKIPPED" }
+    if ($settings.scenario -eq "migration") { $script:gateStatus.gates["MigrationGuard"] = "SKIPPED" }
 }
 
 # ============================================

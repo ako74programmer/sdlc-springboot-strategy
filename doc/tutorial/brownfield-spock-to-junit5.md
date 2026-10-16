@@ -16,7 +16,7 @@ Ogólny opis kroków brownfield (MCP, środowisko, raport): [brownfield-bff-temp
 | `vulnfix` | Tylko podatności zależności (Xray) | podbicie Tomcata | nie |
 | `refactor` | Zmiana struktury **kodu produkcyjnego** bez zmiany zachowania | wydzielenie serwisu, rozbicie klasy | nie |
 | `tests` | Praca **tylko na testach**: dopisanie, wymiana frameworka, poprawa jakości | Spock -> JUnit 5, pokrycie 40% -> 70% | tak |
-| `migration` | Zmiana wersji platformy lub frameworka w **kodzie produkcyjnym** | Spring Boot 3 -> 4, Java 17 -> 21 | nie |
+| `migration` | Zmiana wersji platformy lub frameworka w **kodzie produkcyjnym** | Spring Boot 3 -> 4, Java 17 -> 21 | tak ([brownfield-springboot3-to-4.md](brownfield-springboot3-to-4.md)) |
 | `review` | Tylko ocena, bez zmian w kodzie | przegląd MR | nie |
 
 Reguła rozstrzygająca: patrz, **co się zmienia**. Zmienia się tylko `src/test` i część testowa `pom.xml` -> `tests`. Zmienia się `src/main` bez zmiany zachowania -> `refactor`. Zmienia się wersja platformy produkcyjnej -> `migration`.
@@ -50,6 +50,8 @@ coverageTolerance: 0.0            # new tests must cover at least as much as Spo
 ```
 
 Rozmiar zmierzony po pobraniu (2026-10-13): `src/test/groovy` ma 71 plików (19 klas `*Spec`, ok. 140 metod feature, 3055 linii), `src/test/java` ma 16 plików JUnit, kontrakty to 2 pliki Groovy DSL. Baseline: 150 przypadków testowych, wszystkie zielone.
+
+Wynik przebiegu (2026-10-15): analityk znalazł dodatkowo 23 "uśpione" specyfikacje `*Test.groovy`, których surefire nigdy nie uruchamiał (razem 40 specyfikacji). Po migracji: 237 testów, pokrycie linii 34,6% -> 64,4%. Z 150 przypadków baseline 15 to wpisy zbiorcze Spocka dla `where:` - `TestMigration` ich nie liczy.
 
 ## 3. Kroki
 

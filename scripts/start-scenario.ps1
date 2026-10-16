@@ -9,13 +9,15 @@
 #   .\scripts\start-scenario.ps1 -Scenario bugfix -Project my-legacy-app
 #   .\scripts\start-scenario.ps1 -Scenario feature -RepoUrl https://gitlab.../group/app.git   (fetch-project.ps1 -> attach-project.ps1)
 #   .\scripts\start-scenario.ps1 -Fresh                            (delete the project folder and clone again, asks first)
+#   .\scripts\start-scenario.ps1 -NewTask                          (next task on an attached project: archive old task files, refresh tools)
 # ==============================================================================
 Param(
     [string]$Scenario,
     [string]$Project,
     [string]$RepoUrl,
     [string]$ScenarioConfig = "config/scenario-config.yaml",
-    [switch]$Fresh
+    [switch]$Fresh,
+    [switch]$NewTask
 )
 
 $ErrorActionPreference = "Stop"
@@ -59,7 +61,7 @@ try {
         if ($RepoUrl) {
             & (Join-Path $PSScriptRoot "fetch-project.ps1") -RepoUrl $RepoUrl -Project $Project -ScenarioConfig $ScenarioConfig -Fresh:$Fresh
         }
-        & (Join-Path $PSScriptRoot "attach-project.ps1") -Project $Project -Scenario $Scenario
+        & (Join-Path $PSScriptRoot "attach-project.ps1") -Project $Project -Scenario $Scenario -NewTask:$NewTask
     }
 } finally {
     Pop-Location
