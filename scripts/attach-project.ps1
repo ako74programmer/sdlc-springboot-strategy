@@ -157,8 +157,41 @@ foreach ($secret in @("jfrog.token", "sonar-token.txt")) {
 
 # --- 3. Maven (brownfield sdlc.ps1 falls back to mvn when there is no wrapper) ---
 Write-Host "`n[3/6] Maven and Java" -ForegroundColor Yellow
+# Same Maven as the CI builder image; a different one hides CI-only failures
+$mavenHome = ""
+$mavenVersion = $projectCfg["mavenVersion"]
+$mavensDir = $projectCfg["mavensDir"]
+if ($mavenVersion -and $mavensDir) {
+    $candidate = Join-Path $mavensDir "apache-maven-$mavenVersion"
+    if (-not (Test-Path (Join-Path $candidate "bin\mvn.cmd")) -and (Test-Path $mavensDir) -and (Get-Command mvn -ErrorAction SilentlyContinue)) {
+        Write-Host "    Maven $mavenVersion not in $mavensDir - downloading org.apache.maven:apache-maven:${mavenVersion}:zip:bin" -ForegroundColor Gray
+        $download = Join-Path ([IO.Path]::GetTempPath()) "sdlc-maven-$mavenVersion"
+        $dlSettings = @(if ($MavenSettings) { "-s", (Resolve-Path $MavenSettings).Path })
+        # mvn writes JVM notices to stderr; they must not stop this script
+        $previousEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        & mvn -B -q @dlSettings "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy" `
+            "-Dartifact=org.apache.maven:apache-maven:${mavenVersion}:zip:bin" "-DoutputDirectory=$download" 2>&1 | Out-Host
+        $ErrorActionPreference = $previousEap
+        $zip = Join-Path $download "apache-maven-$mavenVersion-bin.zip"
+        if (Test-Path $zip) {
+            Expand-Archive -Path $zip -DestinationPath $mavensDir -Force
+        }
+        Remove-Item $download -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path (Join-Path $candidate "bin\mvn.cmd")) {
+        $mavenHome = (Resolve-Path $candidate).Path
+        Write-Host "    Maven $mavenVersion`: $mavenHome" -ForegroundColor Green
+    } else {
+        Write-Host "    Maven $mavenVersion not available in $mavensDir (download failed or mavensDir missing) - tools use mvn from PATH" -ForegroundColor DarkYellow
+    }
+} else {
+    Write-Host "    mavenVersion/mavensDir not set - tools use mvn from PATH" -ForegroundColor DarkYellow
+}
 if (Test-Path (Join-Path $projectPath "mvnw.cmd")) {
-    Write-Host "    Maven Wrapper present" -ForegroundColor Green
+    Write-Host "    Maven Wrapper present - it decides the Maven version" -ForegroundColor Green
+} elseif ($mavenHome) {
+    Write-Host "    No Maven Wrapper - tools use $mavenHome" -ForegroundColor Green
 } elseif (Get-Command mvn -ErrorAction SilentlyContinue) {
     Write-Host "    No Maven Wrapper - tools use mvn from PATH" -ForegroundColor Green
 } else {
@@ -324,6 +357,7 @@ $sdlcSettings = [ordered]@{
     scenario              = $Scenario
     mavenSettings         = $(if ($MavenSettings) { (Resolve-Path $MavenSettings).Path } else { "" })
     javaHome              = $javaHome
+    mavenHome             = $mavenHome
     diffGuardMaxFiles     = Get-CfgNumber "diffGuardMaxFiles" 15
     diffGuardMaxLines     = Get-CfgNumber "diffGuardMaxLines" 400
     diffGuardMode         = $(if ($scenarioCfg["diffGuardMode"]) { $scenarioCfg["diffGuardMode"] } else { "warn" })

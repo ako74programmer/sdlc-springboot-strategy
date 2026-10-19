@@ -29,6 +29,11 @@ maven:
   # Folder with JDKs (it and its subfolders are searched for a 'release' file); attach-project.ps1 picks the one
   # matching the project's Java version. Empty = java from PATH.
   jdksDir: "C:\Users\160246\Desktop\java-tools\java"
+  # Maven used by the brownfield tools (tools\sdlc.ps1, recon.ps1, use-java.ps1); a Maven Wrapper in the project wins.
+  # Keep it equal to the CI builder image: a different Maven hides CI-only failures (2026-10-19: 3.9.16 vs 3.9.11).
+  # attach-project.ps1 looks for <mavensDir>\apache-maven-<mavenVersion> and downloads it from Artifactory when missing.
+  mavenVersion: 3.9.16
+  mavensDir: "C:\Users\160246\Desktop\java-tools"
 
 # SDLC Pipeline Enrichments
 sdlc:

@@ -16,7 +16,7 @@ $report = [ordered]@{
     timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
     project   = (Split-Path (Get-Location) -Leaf)
     build     = [ordered]@{ tool = $null; wrapper = $false; multiModule = $false; modules = @() }
-    versions  = [ordered]@{ javaDeclared = $null; javaRuntime = $null; springBoot = $null }
+    versions  = [ordered]@{ javaDeclared = $null; javaRuntime = $null; mavenRuntime = $null; springBoot = $null }
     plugins   = [ordered]@{ jacoco = $false; jacocoCheck = $false; dependencyCheck = $false }
     sonar     = [ordered]@{ propertiesFile = $false; projectKey = $null }
     source    = [ordered]@{ mainFiles = 0; testFiles = 0; largestClasses = @(); classesWithoutTest = @() }
@@ -87,6 +87,10 @@ if ((Get-PomText "project/parent/artifactId") -eq "spring-boot-starter-parent") 
 if (Test-Path (Join-Path $PSScriptRoot "use-java.ps1")) { & (Join-Path $PSScriptRoot "use-java.ps1") -Quiet }
 $javaOut = (& java -version 2>&1 | ForEach-Object { "$_" }) -join "`n"
 if ($javaOut -match 'version "([^"]+)"') { $report.versions.javaRuntime = $matches[1] }
+if (-not (Test-Path "mvnw.cmd")) {
+    $mvnOut = (& mvn -v 2>&1 | ForEach-Object { "$_" }) -join "`n"
+    if ($mvnOut -match 'Apache Maven (\S+)') { $report.versions.mavenRuntime = $matches[1] }
+}
 
 $pomRaw = Get-Content "pom.xml" -Raw
 $report.plugins.jacoco = $pomRaw -match "jacoco-maven-plugin"
@@ -121,6 +125,7 @@ $report.source.classesWithoutTest = @($mainFiles | Where-Object {
 
 Write-Host "  Build tool:   maven (wrapper: $($report.build.wrapper))" -ForegroundColor Gray
 Write-Host "  Java:         declared $($report.versions.javaDeclared), runtime $($report.versions.javaRuntime)" -ForegroundColor Gray
+Write-Host "  Maven:        $(if ($report.build.wrapper) { 'wrapper' } else { $report.versions.mavenRuntime })" -ForegroundColor Gray
 Write-Host "  Spring Boot:  $($report.versions.springBoot)" -ForegroundColor Gray
 Write-Host "  Sources:      $($mainFiles.Count) main, $($testFiles.Count) test, $($report.source.classesWithoutTest.Count) main classes without a test" -ForegroundColor Gray
 Write-Host "  JaCoCo:       $($report.plugins.jacoco) (check rule: $($report.plugins.jacocoCheck))" -ForegroundColor Gray

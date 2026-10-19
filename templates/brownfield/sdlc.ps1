@@ -59,7 +59,7 @@ $gateStatus = @{
     metrics   = @{
         tests    = @{ total = 0; passed = 0; failed = 0; skipped = 0; errors = 0 }
         coverage = @{ line = $null; branch = $null }
-        sonar    = @{ openIssues = $null }
+        sonar    = @{ openIssues = $null; hotspotsToReview = $null }
     }
     baseline  = $null
     delta     = $null
@@ -503,6 +503,15 @@ if (-not $SkipSonar) {
                 $script:sonarIssues = $issueList
                 $script:gateStatus.metrics.sonar.openIssues = [int]$issues.total
                 Write-Host "    Open issues: $($issues.total)" -ForegroundColor Gray
+                # Hotspots are not part of any gate; recorded so agents report them without querying SonarQube themselves
+                try {
+                    $hotspots = Invoke-RestMethod -Uri "$sonarUrl/api/hotspots/search?project=$projectKey&status=TO_REVIEW&ps=1" `
+                        -Headers @{ Authorization = "Bearer $sonarToken" } -ErrorAction Stop
+                    $script:gateStatus.metrics.sonar.hotspotsToReview = [int]$hotspots.paging.total
+                    Write-Host "    Security hotspots to review: $($hotspots.paging.total)" -ForegroundColor Gray
+                } catch {
+                    $script:gateStatus.warnings += "Could not read SonarQube security hotspots: $_"
+                }
 
                 if ([int]$settings.sonarMaxOpenIssues -ge 0) {
                     if ([int]$issues.total -gt [int]$settings.sonarMaxOpenIssues) {
@@ -626,6 +635,7 @@ if ($Baseline) {
         cases               = $testCases
         coverage            = $script:gateStatus.metrics.coverage
         sonarOpenIssues     = $script:gateStatus.metrics.sonar.openIssues
+        sonarHotspotsToReview = $script:gateStatus.metrics.sonar.hotspotsToReview
         sonarIssueKeys      = $(if ($null -ne $script:sonarIssues) { , @($script:sonarIssues | ForEach-Object { $_.key }) } else { $null })
         testFiles           = Get-TestFileFacts
         suppressions        = Get-SuppressionCount

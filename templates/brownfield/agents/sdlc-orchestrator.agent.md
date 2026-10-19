@@ -64,7 +64,7 @@ In `migration`:
 - when fewer tests run than in the baseline, find out which ones before changing anything (e.g. a contract-test generator that skips up-to-date tests: Spring Cloud Contract `incrementalContractTests`).
 
 In `sonarfix`:
-- the baseline lists every open issue (`sonarIssueKeys`); the goal is `sonarMaxOpenIssues` from `sdlc-settings.json` (0 = clean). Security hotspots are not counted by the gate; mention them in the report;
+- the baseline lists every open issue (`sonarIssueKeys`); the goal is `sonarMaxOpenIssues` from `sdlc-settings.json` (0 = clean). Security hotspots are not counted by the gate; mention them in the report: `metrics.sonar.hotspotsToReview` in `sdlc-report.json` (baseline: `sonarHotspotsToReview`). Do not query SonarQube yourself; the company SonarQube (MCP) is a different server and does not know this project;
 - fix code, never silence it: no `NOSONAR`, `@SuppressWarnings`, exclusions, changes to `sonar-project.properties`, and no marking issues as "won't fix" / "false positive" in SonarQube. If an issue is a real false positive, list it for the user - only the user may resolve it in the SonarQube UI;
 - behaviour stays the same. A fix that can change behaviour - names that reach external systems by reflection or serialization (JSON, IBM i / DCICBS request fields, JPA columns), time zones and clocks, null handling, public API signatures, request mappings - is a decision for the user before `planner`. Ask once, with all such groups in one list;
 - tests may be restructured only where a rule asks for it (e.g. merge similar tests into a parameterized one, split a test with too many assertions); every original case and assertion value must survive. `TestCount` fails when fewer tests run or pass than in the baseline;
