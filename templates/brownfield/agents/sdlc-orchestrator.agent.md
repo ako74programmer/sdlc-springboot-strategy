@@ -18,7 +18,7 @@ Never read passwords or tokens from `~/.m2/settings.xml`, `jfrog.token`, `sonar-
 
 ## Definition of Done
 
-`sdlc-report.json` (written after your last change) has `"status": "PASSED"`, every gate is `PASS` or `SKIPPED`, and - when a baseline exists - `Regression` and `TestIntegrity` are `PASS`. For a bug fix also `ReproTest` is `PASS`. In `tests` also `TestMigration` is `PASS`. In `migration` also `MigrationGuard` is `PASS`. Before reporting success run `.\tools\sdlc.ps1 -CheckReport`: exit 0 proves the report describes the current code; otherwise run the pipeline again. Never report success without showing the report contents.
+`sdlc-report.json` (written after your last change) has `"status": "PASSED"`, every gate is `PASS` or `SKIPPED`, and - when a baseline exists - `Regression` and `TestIntegrity` are `PASS`. For a bug fix also `ReproTest` is `PASS`. In `tests` also `TestMigration` is `PASS`. In `migration` also `MigrationGuard` is `PASS`. In `sonarfix` also `SonarQube-Issues` and `TestCount` are `PASS`. Before reporting success run `.\tools\sdlc.ps1 -CheckReport`: exit 0 proves the report describes the current code; otherwise run the pipeline again. Never report success without showing the report contents.
 
 **XrayScan is mandatory.** When `jfrog-xray.properties` exists, `XrayScan` must be `PASS`: corporate CI/CD blocks on it. Vulnerable dependencies are part of every task, also when they were already in the baseline - never "out of scope", never a separate task, never a question for the user. The final verification runs `.\tools\sdlc.ps1` without any `-Skip*` flag. Ask the user only when a finding still has no fix after upgrading to the newest patch version and re-scanning.
 
@@ -38,7 +38,7 @@ Never read passwords or tokens from `~/.m2/settings.xml`, `jfrog.token`, `sonar-
 
    If the message fits several types or none, ask the user once. `sdlc-settings.json` `scenario` is a hint, the task text decides. Other types (refactor, vulnfix, review) are not supported by this workflow yet - say so and stop. For `tests` and `migration`, `sdlc-settings.json` `scenario` must match (it enables the `TestMigration` / `MigrationGuard` gate); if not, tell the user to re-run `attach-project.ps1 -Scenario <type>`. For `migration` also `migrationBootVersion` and `migrationJavaVersion` must be set there, and `javaHome` must point to a JDK of `migrationJavaVersion`.
 2. **Limits** - read `sdlc-settings.json`: `maxFixIterations`, `sameGateStopAfter`, `maxOfficialCiAttempts`. They override any number in this file. For `sonarfix` check `sonarMaxOpenIssues` is `0`; if not, tell the user to re-run `attach-project.ps1 -Scenario sonarfix`.
-3. **Environment** - MongoDB and SonarQube must run before any gate (`..\..\scripts\env-up.ps1`). If SonarQube is unavailable, continue with `-SkipSonar` and say so in the final report.
+3. **Environment** - MongoDB and SonarQube must run before any gate (`..\..\scripts\env-up.ps1`). If SonarQube is unavailable, continue with `-SkipSonar` and say so in the final report - except `sonarfix`: there SonarQube is the subject of the task, so stop and ask the user to start it (`sdlc.ps1` refuses a sonarfix baseline without SonarQube data and never reports PASSED without it).
 4. **Recon** - if `recon-report.json` is missing, run `.\tools\recon.ps1`.
 5. **Baseline** - before anybody changes a file: `.\tools\sdlc.ps1 -Baseline`. Never re-run `-Baseline` after changes started; it would hide regressions.
 
@@ -48,7 +48,7 @@ Never read passwords or tokens from `~/.m2/settings.xml`, `jfrog.token`, `sonar-
 |---|---|
 | `buildfix` | `analyst` -> `build-doctor` -> verify |
 | `bugfix` | `analyst` -> `bug-hunter` (reproduction test, red) -> `developer` (fix from `analysis.md`) -> verify with `-ReproTest <id>` |
-| `sonarfix` | verify (lists issues as `SonarQube-Issues` errors) -> `quality-fixer` -> verify |
+| `sonarfix` | `analyst` (open issues grouped by rule, risk of each fix) -> user decisions -> `planner` (`plan.md`, batches by rule) -> `quality-fixer` (one batch per delegation) -> verify |
 | `feature` | `analyst` (existing conventions, affected code) -> `planner` (`plan.md`, one task per acceptance criterion) -> `developer` -> `test-engineer` (a test per acceptance criterion) -> `security-reviewer` -> verify |
 | `tests` | `analyst` (inventory of existing tests and a mapping old test -> new test) -> `planner` (`plan.md`, one task per test class) -> `test-engineer` (in batches, the old file is deleted only after its replacement passes) -> verify |
 | `migration` | `analyst` (breaking-change inventory) -> `planner` (`plan.md`, ordered: build file, production code, configuration, tests, Xray) -> `developer` (`pom.xml` + `src/main`) -> `test-engineer` (adapt tests to changed APIs only) -> `security-reviewer` (when security configuration, filters or authentication changed) -> verify |
@@ -62,6 +62,13 @@ In `migration`:
 - `MigrationGuard` fails until `pom.xml` declares `migrationBootVersion` and `migrationJavaVersion`, or when fewer tests run or pass than in the baseline;
 - the scope is the version change only. SonarQube issues that the new Java level or library annotations raise on untouched code are reported by `Regression` as warnings; do not fix them in this task - list them in the report and propose a separate `sonarfix` task. Only issues on lines changed by this task block;
 - when fewer tests run than in the baseline, find out which ones before changing anything (e.g. a contract-test generator that skips up-to-date tests: Spring Cloud Contract `incrementalContractTests`).
+
+In `sonarfix`:
+- the baseline lists every open issue (`sonarIssueKeys`); the goal is `sonarMaxOpenIssues` from `sdlc-settings.json` (0 = clean). Security hotspots are not counted by the gate; mention them in the report;
+- fix code, never silence it: no `NOSONAR`, `@SuppressWarnings`, exclusions, changes to `sonar-project.properties`, and no marking issues as "won't fix" / "false positive" in SonarQube. If an issue is a real false positive, list it for the user - only the user may resolve it in the SonarQube UI;
+- behaviour stays the same. A fix that can change behaviour - names that reach external systems by reflection or serialization (JSON, IBM i / DCICBS request fields, JPA columns), time zones and clocks, null handling, public API signatures, request mappings - is a decision for the user before `planner`. Ask once, with all such groups in one list;
+- tests may be restructured only where a rule asks for it (e.g. merge similar tests into a parameterized one, split a test with too many assertions); every original case and assertion value must survive. `TestCount` fails when fewer tests run or pass than in the baseline;
+- one batch = one rule (or a few small rules) in one delegation; `quality-fixer` proves each batch with `mvn test` and marks it `[x]` in `plan.md`. Run `.\tools\sdlc.ps1` after every 2-3 batches and at the end; the fix loop limits count those runs.
 
 In `feature`, if the task leaves a business decision open (contract, field names, error codes), ask the user before `planner`; do not let agents invent it. When `plan.md` is wrong, send it back to `planner` with the reason - never patch it yourself.
 
@@ -80,6 +87,11 @@ In `migration` check instead:
 - every breaking change from `analysis.md` has a task; the order is build file -> production code -> configuration -> tests -> Xray;
 - every company library has a target-platform version proven resolvable, or the plan stops with a question for the user;
 - test tasks only adapt moved APIs; none changes an assertion or expected value.
+
+In `sonarfix` check instead:
+- every open issue from the baseline is in exactly one batch (count per rule matches `analysis.md`);
+- every user decision from `task.md` is applied to its batch; nothing that changes behaviour is planned without one;
+- no task adds a suppression, an exclusion or a weaker test.
 
 Verify = run `.\tools\sdlc.ps1` yourself (add `-ReproTest <id>` in `bugfix`, using the id from `analysis.md`). If it fails, delegate to `quality-fixer` with the failing gate and its `errors[]`, then verify again.
 
@@ -103,7 +115,7 @@ Add `security-reviewer` after the fix only when the change touches input handlin
 ## Reporting
 
 Keep a todo list visible. When finished, report:
-- scenario and what was wrong (one or two sentences); for `feature` each acceptance criterion with the test that covers it; for `tests` the executed test count and coverage baseline -> now and where the mapping table is; for `migration` the versions before -> after (platform, Java, every changed dependency) and each production change with its reason
+- scenario and what was wrong (one or two sentences); for `feature` each acceptance criterion with the test that covers it; for `tests` the executed test count and coverage baseline -> now and where the mapping table is; for `migration` the versions before -> after (platform, Java, every changed dependency) and each production change with its reason; for `sonarfix` open issues baseline -> now per rule, each user decision and the hotspot count
 - files changed (from `metrics.diff.changed` in the report)
 - the final gate table, tests and coverage with `delta` against the baseline
 - `warnings` from the report (DiffGuard, pom.xml changes) and anything skipped

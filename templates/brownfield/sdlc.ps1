@@ -2,7 +2,8 @@
 # LOCAL SDLC PIPELINE (brownfield) - Quality & Security Gates
 #   .\tools\sdlc.ps1 -Baseline           record the starting state (sdlc-baseline.json)
 #   .\tools\sdlc.ps1                     gates + Regression/TestIntegrity/DiffGuard against the baseline
-#                                        (+ TestMigration when sdlc-settings.json scenario is "tests", MigrationGuard for "migration")
+#                                        (+ TestMigration when sdlc-settings.json scenario is "tests", MigrationGuard for "migration",
+#                                         TestCount and SonarQube-Issues for "sonarfix")
 #   .\tools\sdlc.ps1 -ReproTest Cls#m     also prove a bug: the test must be red first, green after the fix
 #   .\tools\sdlc.ps1 -CheckReport        does sdlc-report.json describe the current code? (exit 0 = yes)
 # ==============================================================================
@@ -96,6 +97,12 @@ if ($CheckReport) {
     exit 1
 }
 $gateStatus.workTreeHash = Get-WorkTreeHash
+
+# sonarfix is judged by SonarQube data: a baseline without the open issue keys would make Regression and SonarQube-Issues meaningless
+if ($Baseline -and $SkipSonar -and $settings.scenario -eq "sonarfix") {
+    Write-Host "[BASELINE] Not recorded: -SkipSonar is not allowed for a sonarfix baseline. Start SonarQube (..\..\scripts\env-up.ps1) and run .\tools\sdlc.ps1 -Baseline" -ForegroundColor Red
+    exit 1
+}
 
 # Taken before the build: files the build rewrites (e.g. springdoc output) must not end up in the baseline snapshot
 $preBuildGitBase = $null
@@ -524,6 +531,18 @@ if (-not $SkipSonar) {
     $script:gateStatus.gates["SonarQube"] = "SKIPPED"
 }
 
+# sonarfix: a run without confirmed open issues (skipped, Sonar down, analysis not confirmed) is never PASSED
+if ($settings.scenario -eq "sonarfix" -and -not $Baseline -and -not $script:gateStatus.gates.ContainsKey("SonarQube-Issues")) {
+    $script:gateStatus.gates["SonarQube-Issues"] = "FAIL"
+    $script:gateStatus.status = "FAILED"
+    $script:gateStatus.errors += @{
+        gate    = "SonarQube-Issues"
+        summary = "Open SonarQube issues not read in a sonarfix scenario"
+        details = "SonarQube gate: $($script:gateStatus.gates['SonarQube']). Start SonarQube (..\..\scripts\env-up.ps1) and run .\tools\sdlc.ps1 without -SkipSonar"
+    }
+    Write-Host "[GATE FAIL] SonarQube-Issues (open issues not read)" -ForegroundColor Red
+}
+
 # ============================================
 # Baseline facts (shared by -Baseline and the comparison gates)
 # ============================================
@@ -590,6 +609,10 @@ if ($Baseline) {
     # ============================================
     # -Baseline: record the starting point; failing legacy tests are recorded, not judged
     # ============================================
+    if ($settings.scenario -eq "sonarfix" -and $null -eq $script:sonarIssues) {
+        Write-Host "`n[BASELINE] Not recorded: SonarQube open issues were not read (SonarQube: $($script:gateStatus.gates['SonarQube'])). Start SonarQube (..\..\scripts\env-up.ps1) and run .\tools\sdlc.ps1 -Baseline again" -ForegroundColor Red
+        exit 1
+    }
     $gitBase = $preBuildGitBase
     if ($gitBase) {
         # stash create snapshots tracked changes (e.g. JaCoCo added by attach) without touching the working tree
@@ -686,16 +709,18 @@ if ($Baseline) {
     # GATE: TestIntegrity - tests must not be deleted, disabled or weakened; no new suppressions
     # ============================================
     $ok = $true
-    # In a test migration old tests are replaced; TestMigration then guards the number of executed tests
+    # In a test migration (and when sonarfix merges tests into parameterized ones) methods are replaced;
+    # TestMigration / TestCount then guard the number of executed tests
     $migration = ($settings.scenario -eq "tests")
+    $testsReplaceable = ($settings.scenario -in @("tests", "sonarfix"))
     $nowFacts = Get-TestFileFacts
     if ($base.testFiles) {
         foreach ($p in $base.testFiles.PSObject.Properties) {
             $file = $p.Name; $was = $p.Value
             if (-not $nowFacts.ContainsKey($file)) {
                 if (@($was.methods).Count -gt 0) {
-                    if ($migration) {
-                        $script:gateStatus.warnings += "TestIntegrity: test file replaced (guarded by TestMigration): $file ($(@($was.methods).Count) tests)"
+                    if ($testsReplaceable) {
+                        $script:gateStatus.warnings += "TestIntegrity: test file replaced (guarded by the test count gate): $file ($(@($was.methods).Count) tests)"
                     } else {
                         $ok = $false
                         Add-GateError "TestIntegrity" "Test file deleted" "$file ($(@($was.methods).Count) tests)"
@@ -706,8 +731,8 @@ if ($Baseline) {
             $now = $nowFacts[$file]
             $missing = @(@($was.methods) | Where-Object { @($now.methods) -notcontains $_ })
             if ($missing.Count -gt 0) {
-                if ($migration) {
-                    $script:gateStatus.warnings += "TestIntegrity: test methods replaced (guarded by TestMigration): ${file}: $($missing -join ', ')"
+                if ($testsReplaceable) {
+                    $script:gateStatus.warnings += "TestIntegrity: test methods replaced (guarded by the test count gate): ${file}: $($missing -join ', ')"
                 } else {
                     $ok = $false
                     Add-GateError "TestIntegrity" "Test methods removed or renamed" "${file}: $($missing -join ', ')"
@@ -718,8 +743,12 @@ if ($Baseline) {
                 Add-GateError "TestIntegrity" "Tests disabled" "${file}: @Disabled/@Ignore $($was.disabled) -> $($now.disabled)"
             }
             if ($now.asserts -lt $was.asserts) {
-                $ok = $false
-                Add-GateError "TestIntegrity" "Fewer assertions than in baseline" "${file}: $($was.asserts) -> $($now.asserts)"
+                if ($settings.scenario -eq "sonarfix" -and $missing.Count -gt 0) {
+                    $script:gateStatus.warnings += "TestIntegrity: fewer assertions after merging tests (guarded by TestCount): ${file}: $($was.asserts) -> $($now.asserts)"
+                } else {
+                    $ok = $false
+                    Add-GateError "TestIntegrity" "Fewer assertions than in baseline" "${file}: $($was.asserts) -> $($now.asserts)"
+                }
             }
         }
     }
@@ -789,8 +818,9 @@ if ($Baseline) {
     # Tests may be replaced or adapted, never reduced
     # ============================================
     $platformMigration = ($settings.scenario -eq "migration")
-    if ($migration -or $platformMigration) {
-        $gate = if ($migration) { "TestMigration" } else { "MigrationGuard" }
+    $sonarfix = ($settings.scenario -eq "sonarfix")
+    if ($migration -or $platformMigration -or $sonarfix) {
+        $gate = if ($migration) { "TestMigration" } elseif ($platformMigration) { "MigrationGuard" } else { "TestCount" }
         $ok = $true
         # Spock reports an unrolled feature once more as a container: "<feature>" next to "<feature> [..]", or with unresolved #placeholders
         $byClass = @{}
@@ -831,7 +861,7 @@ if ($Baseline) {
             } else {
                 $script:gateStatus.warnings += "TestMigration: no git baseline - src/main changes not checked"
             }
-        } else {
+        } elseif ($platformMigration) {
             # The migration is done only when pom.xml declares the target versions
             [xml]$pomNow = Get-Content "pom.xml" -Raw
             $pomValue = { param($path) $n = $pomNow.SelectSingleNode("/" + (($path -split '/' | ForEach-Object { "*[local-name()='$_']" }) -join '/')); if ($n) { $n.InnerText.Trim() } }
@@ -861,6 +891,7 @@ if ($Baseline) {
     foreach ($g in @("Regression", "TestIntegrity", "DiffGuard")) { $script:gateStatus.gates[$g] = "SKIPPED" }
     if ($settings.scenario -eq "tests") { $script:gateStatus.gates["TestMigration"] = "SKIPPED" }
     if ($settings.scenario -eq "migration") { $script:gateStatus.gates["MigrationGuard"] = "SKIPPED" }
+    if ($settings.scenario -eq "sonarfix") { $script:gateStatus.gates["TestCount"] = "SKIPPED" }
 }
 
 # ============================================

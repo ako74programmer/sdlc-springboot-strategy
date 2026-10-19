@@ -8,8 +8,9 @@ projectsDir: projects
 
 # greenfield | buildfix | bugfix | sonarfix | vulnfix | refactor | feature | tests | migration | review
 # Pick by what changes: only src/test -> tests; src/main without behaviour change -> refactor;
-# platform/framework version -> migration. Guides: doc/tutorial/brownfield-spock-to-junit5.md, brownfield-springboot3-to-4.md
-scenarioType: migration
+# platform/framework version -> migration; open SonarQube issues -> sonarfix (target 0).
+# Guides: doc/tutorial/brownfield-spock-to-junit5.md, brownfield-springboot3-to-4.md, brownfield-sonarfix.md
+scenarioType: sonarfix
 # Folder name inside projectsDir (ignored for greenfield)
 scenarioProject: "icbs-insurances"
 # Optional: start-scenario.ps1 runs git clone into projectsDir/scenarioProject when the folder is missing
