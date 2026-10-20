@@ -42,7 +42,7 @@ Co oznaczają pola:
 
 | Pole | Znaczenie |
 |---|---|
-| `scenarioType` | Rodzaj pracy. Obsługiwane przez agentów: `feature` (nowa funkcja), `bugfix` (błąd), `buildfix` (projekt się nie buduje), `sonarfix` (problemy SonarQube). |
+| `scenarioType` | Rodzaj pracy. Obsługiwane przez agentów: `feature` (nowa funkcja), `bugfix` (błąd), `buildfix` (projekt się nie buduje), `sonarfix` (problemy SonarQube), `tests` (praca na testach), `migration` (nowa wersja platformy), `review` (przegląd zmian albo całego projektu, tylko raport, patrz [brownfield-review.md](brownfield-review.md)). |
 | `scenarioProject` | Nazwa folderu w `projects/`. Pusta = nazwa z adresu repozytorium. |
 | `scenarioRepoUrl` | Adres do `git clone`. Pusty = kod musi już leżeć w `projects/<scenarioProject>`. |
 | `maxFixIterations` | Ile razy agenci mogą poprawiać i weryfikować, zanim się zatrzymają. |

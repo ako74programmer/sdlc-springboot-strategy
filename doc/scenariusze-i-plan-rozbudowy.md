@@ -158,6 +158,7 @@ Przepływy w orchestratorze (jedna tabela, bez osobnych orchestratorów):
 | C3 | `-Baseline` -> analyst -> test-engineer -> sdlc (`Mutation` opcjonalnie) |
 | C4 | `-Baseline` -> analyst -> migrator -> test-engineer -> sdlc |
 | D1/D2 | security-reviewer lub code review -> raport, bez bramek |
+| `review` (od 2026-10-20) | D1/D2: `-Baseline` (bramka `Toolchain`) -> `-CiParity` -> analyst (`analysis.md`) -> security-reviewer (`security-review.md`) -> raport; zakres: zmiany gałęzi albo cały projekt; bez napraw; tutorial `doc/tutorial/brownfield-review.md` |
 
 ### 4.4 Zestaw treningowy (fixtures)
 

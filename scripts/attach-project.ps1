@@ -338,10 +338,7 @@ if (Test-Path $sonarFile) {
         Replace("{{sonarHostUrl}}", $sonarHostUrl)
     Set-Content -Path $sonarFile -Value $props -Encoding UTF8
     $added.Add("sonar-project.properties")
-    Write-Host "    Generated (projectKey=${groupId}:${artifactId}, host=$sonarHostUrl)" -ForegroundColor Green
-    if ($pomXml.SelectSingleNode("/*[local-name()='project']/*[local-name()='modules']")) {
-        Write-Host "    WARNING: multi-module project - sonar.sources=src/main/java will not match; adjust sonar-project.properties" -ForegroundColor DarkYellow
-    }
+    Write-Host "    Generated (projectKey=${groupId}:${artifactId}, host=$sonarHostUrl; sources, tests and coverage come from pom.xml)" -ForegroundColor Green
 }
 
 # --- 6. Keep our files out of the project's git history -----------------------
@@ -358,6 +355,7 @@ $sdlcSettings = [ordered]@{
     mavenSettings         = $(if ($MavenSettings) { (Resolve-Path $MavenSettings).Path } else { "" })
     javaHome              = $javaHome
     mavenHome             = $mavenHome
+    mavenVersion          = $(if ($mavenVersion) { $mavenVersion } else { "" })
     diffGuardMaxFiles     = Get-CfgNumber "diffGuardMaxFiles" 15
     diffGuardMaxLines     = Get-CfgNumber "diffGuardMaxLines" 400
     diffGuardMode         = $(if ($scenarioCfg["diffGuardMode"]) { $scenarioCfg["diffGuardMode"] } else { "warn" })

@@ -8,13 +8,14 @@ projectsDir: projects
 
 # greenfield | buildfix | bugfix | sonarfix | vulnfix | refactor | feature | tests | migration | review
 # Pick by what changes: only src/test -> tests; src/main without behaviour change -> refactor;
-# platform/framework version -> migration; open SonarQube issues -> sonarfix (target 0).
-# Guides: doc/tutorial/brownfield-spock-to-junit5.md, brownfield-springboot3-to-4.md, brownfield-sonarfix.md
-scenarioType: sonarfix
+# platform/framework version -> migration; open SonarQube issues -> sonarfix (target 0);
+# code or security review of a change or of the whole project, report only, nothing changed -> review.
+# Guides: doc/tutorial/brownfield-spock-to-junit5.md, brownfield-springboot3-to-4.md, brownfield-sonarfix.md, brownfield-review.md
+scenarioType: review
 # Folder name inside projectsDir (ignored for greenfield)
-scenarioProject: "icbs-insurances"
+scenarioProject: "be-wesola_banda_piratow"
 # Optional: start-scenario.ps1 runs git clone into projectsDir/scenarioProject when the folder is missing
-scenarioRepoUrl: "https://gitlab.centrala.bzwbk/icbs/insurancesv1.git"
+scenarioRepoUrl: "https://gitlab.centrala.bzwbk/dev-tournament-base/forks-demo/be-wesola_banda_piratow.git"
 
 # Migration targets (scenarioType: migration) - checked by the MigrationGuard gate; the JDK of migrationJavaVersion is used
 migrationBootVersion: 4.1.1
@@ -26,7 +27,7 @@ maxOfficialCiAttempts: 2
 sameGateStopAfter: 3
 
 # Brownfield gates (copied into the project as sdlc-settings.json by attach-project.ps1)
-diffGuardMaxFiles: 200            # 15 for fixes, 40 for a feature, 200 for a test or platform migration
-diffGuardMaxLines: 12000          # 400 for fixes, 1500 for a feature
+diffGuardMaxFiles: 15             # 15 for fixes, 40 for a feature, 200 for a test or platform migration (unused in review)
+diffGuardMaxLines: 400            # 400 for fixes, 1500 for a feature
 diffGuardMode: warn               # warn | fail
 coverageTolerance: 0.0            # allowed drop of line coverage vs baseline, in percentage points

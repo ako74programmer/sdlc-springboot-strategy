@@ -3,8 +3,9 @@
 #   .\tools\sdlc.ps1 -Baseline           record the starting state (sdlc-baseline.json)
 #   .\tools\sdlc.ps1                     gates + Regression/TestIntegrity/DiffGuard against the baseline
 #                                        (+ TestMigration when sdlc-settings.json scenario is "tests", MigrationGuard for "migration",
-#                                         TestCount and SonarQube-Issues for "sonarfix")
+#                                         TestCount and SonarQube-Issues for "sonarfix", Toolchain for "review")
 #   .\tools\sdlc.ps1 -ReproTest Cls#m     also prove a bug: the test must be red first, green after the fix
+#   .\tools\sdlc.ps1 -CiParity           build like CI: empty temporary local Maven repository (slow, downloads everything)
 #   .\tools\sdlc.ps1 -CheckReport        does sdlc-report.json describe the current code? (exit 0 = yes)
 # ==============================================================================
 Param(
@@ -13,6 +14,7 @@ Param(
     [switch]$SkipXray,
     [switch]$Baseline,
     [switch]$CheckReport,
+    [switch]$CiParity,
     [string]$ReproTest,
     [string]$MavenSettings = $env:MAVEN_SETTINGS,
     [string]$SonarPluginVersion = "5.8.0.7211"
@@ -57,7 +59,7 @@ $gateStatus = @{
     scenario  = $settings.scenario
     gates     = @{}
     metrics   = @{
-        tests    = @{ total = 0; passed = 0; failed = 0; skipped = 0; errors = 0 }
+        tests    = @{ total = 0; passed = 0; failed = 0; skipped = 0; errors = 0; integration = 0 }
         coverage = @{ line = $null; branch = $null }
         sonar    = @{ openIssues = $null; hotspotsToReview = $null }
     }
@@ -85,6 +87,28 @@ function Get-WorkTreeHash {
     }
 }
 
+# Tracked files the build rewrote (e.g. a contract or OpenAPI file generated from code) are put back to their content
+# from before this run, so the working tree, the diff gates and -CheckReport describe the code, not build output
+$buildRestored = New-Object System.Collections.Generic.List[string]
+$buildAdded = New-Object System.Collections.Generic.List[string]
+function Restore-BuildRewrites([string]$preRunTree) {
+    if (-not $preRunTree) { return }
+    $now = Get-WorkTreeHash
+    if (-not $now -or $now -eq $preRunTree) { return }
+    foreach ($line in @(git diff --name-status --no-renames $preRunTree $now 2>$null)) {
+        $parts = $line -split "`t", 2
+        if ($parts.Count -lt 2) { continue }
+        $path = $parts[1]
+        if ($parts[0] -eq "A") {
+            # New untracked, not ignored file from the build: reported, never deleted
+            if (-not $script:buildAdded.Contains($path)) { $script:buildAdded.Add($path) }
+            continue
+        }
+        git restore "--source=$preRunTree" --worktree -- $path 2>$null
+        if ($LASTEXITCODE -eq 0 -and -not $script:buildRestored.Contains($path)) { $script:buildRestored.Add($path) }
+    }
+}
+
 if ($CheckReport) {
     if (-not (Test-Path $reportFile)) { Write-Host "No $reportFile - run .\tools\sdlc.ps1" -ForegroundColor Red; exit 1 }
     $recorded = (Get-Content $reportFile -Raw | ConvertFrom-Json).workTreeHash
@@ -99,12 +123,64 @@ if ($CheckReport) {
 $gateStatus.workTreeHash = Get-WorkTreeHash
 
 # sonarfix is judged by SonarQube data: a baseline without the open issue keys would make Regression and SonarQube-Issues meaningless
-if ($Baseline -and $SkipSonar -and $settings.scenario -eq "sonarfix") {
-    Write-Host "[BASELINE] Not recorded: -SkipSonar is not allowed for a sonarfix baseline. Start SonarQube (..\..\scripts\env-up.ps1) and run .\tools\sdlc.ps1 -Baseline" -ForegroundColor Red
+$sonarClean = ($settings.scenario -eq "sonarfix")
+if ($Baseline -and $SkipSonar -and $sonarClean) {
+    Write-Host "[BASELINE] Not recorded: -SkipSonar is not allowed for a $($settings.scenario) baseline. Start SonarQube (..\..\scripts\env-up.ps1) and run .\tools\sdlc.ps1 -Baseline" -ForegroundColor Red
     exit 1
 }
 
-# Taken before the build: files the build rewrites (e.g. springdoc output) must not end up in the baseline snapshot
+# -CiParity: CI builds start from an empty local repository; plugin and transport conflicts show up only while downloading
+$ciRepo = $null
+if ($CiParity) {
+    $ciRepo = Join-Path ([IO.Path]::GetTempPath()) "sdlc-ci-repo-$PID"
+    New-Item -ItemType Directory -Path $ciRepo -Force | Out-Null
+    $mvnSettingsArgs += "-Dmaven.repo.local=$ciRepo"
+    $gateStatus.ciParity = $true
+    Write-Host "CI parity: empty local Maven repository $ciRepo" -ForegroundColor Gray
+}
+function Remove-CiRepo {
+    if ($script:ciRepo) { Remove-Item $script:ciRepo -Recurse -Force -ErrorAction SilentlyContinue }
+}
+$mvnVersionLine = (& $mvn -v 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'Apache Maven' } | Select-Object -First 1)
+$gateStatus.maven = if ($mvnVersionLine -match 'Apache Maven (\S+)') { $matches[1] } else { $null }
+
+# Toolchain facts: the JDK and Maven this run really used (judged by the Toolchain gate in scenario "review")
+function Get-JavaMajor([string]$version) {
+    if ($version -match '^1\.(\d+)') { return [int]$matches[1] }
+    if ($version -match '^(\d+)') { return [int]$matches[1] }
+    return $null
+}
+$javaRuntime = $null
+if (Get-Command java -ErrorAction SilentlyContinue) {
+    $javaVersionLine = (& java -version 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'version "' } | Select-Object -First 1)
+    if ($javaVersionLine -match 'version "([^"]+)"') { $javaRuntime = $matches[1] }
+}
+$javaRequired = $null
+if ($settings.migrationJavaVersion) {
+    $javaRequired = "$($settings.migrationJavaVersion)"
+} else {
+    try {
+        [xml]$pomForJava = [IO.File]::ReadAllText((Resolve-Path "pom.xml").Path)
+        foreach ($prop in @("java.version", "maven.compiler.release", "maven.compiler.source")) {
+            $node = $pomForJava.SelectSingleNode("/*[local-name()='project']/*[local-name()='properties']/*[local-name()='$prop']")
+            if ($node -and $node.InnerText.Trim()) { $javaRequired = $node.InnerText.Trim(); break }
+        }
+    } catch {
+        $gateStatus.warnings += "Toolchain: pom.xml not readable, required Java version unknown"
+    }
+}
+$gateStatus.toolchain = [ordered]@{
+    java          = $javaRuntime
+    javaHome      = $env:JAVA_HOME
+    javaRequired  = $javaRequired
+    maven         = $gateStatus.maven
+    mavenExpected = $settings.mavenVersion
+    mavenWrapper  = [bool](Test-Path "mvnw.cmd")
+    mavenSettings = $(if ($mvnSettingsArgs.Count -ge 2 -and $mvnSettingsArgs[0] -eq "-s") { $mvnSettingsArgs[1] } else { "" })
+}
+Write-Host "Toolchain: Java $javaRuntime (pom.xml: $(if ($javaRequired) { $javaRequired } else { 'not declared' })), Maven $($gateStatus.maven)$(if ($settings.mavenVersion) { " (CI: $($settings.mavenVersion))" })" -ForegroundColor Gray
+
+# Taken before the build: files the build rewrites (e.g. generated contracts) must not end up in the baseline snapshot
 $preBuildGitBase = $null
 if ($Baseline) {
     $null = git rev-parse --is-inside-work-tree 2>$null
@@ -149,13 +225,14 @@ function Execute-Gate {
     }
 }
 
-# Helper: Parse Surefire test results (all modules), including per-test outcome
+# Helper: Parse Surefire and Failsafe test results (all modules), including per-test outcome.
+# Failsafe runs integration tests in 'verify'; without them a failing or removed integration test would be invisible to the gates.
 function Parse-TestResults {
     $suites = @(Get-ChildItem -Path . -Recurse -File -Filter "TEST-*.xml" -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -match '[\\/]target[\\/]surefire-reports[\\/]' })
+        Where-Object { $_.FullName -match '[\\/]target[\\/](surefire|failsafe)-reports[\\/]' })
     if ($suites.Count -eq 0) { return }
 
-    $totalTests = 0; $totalFailed = 0; $totalErrors = 0; $totalSkipped = 0
+    $totalTests = 0; $totalFailed = 0; $totalErrors = 0; $totalSkipped = 0; $integrationTests = 0
 
     foreach ($file in $suites) {
         try {
@@ -165,6 +242,7 @@ function Parse-TestResults {
             $totalFailed  += [int]$suite.failures
             $totalErrors  += [int]$suite.errors
             $totalSkipped += [int]$suite.skipped
+            if ($file.FullName -match '[\\/]failsafe-reports[\\/]') { $integrationTests += [int]$suite.tests }
             foreach ($tc in @($suite.SelectNodes("testcase"))) {
                 $state = if ($tc.SelectSingleNode("failure") -or $tc.SelectSingleNode("error")) { "failed" }
                          elseif ($tc.SelectSingleNode("skipped")) { "skipped" }
@@ -177,14 +255,15 @@ function Parse-TestResults {
     }
     
     $script:gateStatus.metrics.tests = @{
-        total   = $totalTests
-        passed  = ($totalTests - $totalFailed - $totalErrors - $totalSkipped)
-        failed  = $totalFailed
-        errors  = $totalErrors
-        skipped = $totalSkipped
+        total       = $totalTests
+        passed      = ($totalTests - $totalFailed - $totalErrors - $totalSkipped)
+        failed      = $totalFailed
+        errors      = $totalErrors
+        skipped     = $totalSkipped
+        integration = $integrationTests
     }
     
-    Write-Host "    Tests: $totalTests total, $($totalTests - $totalFailed - $totalErrors - $totalSkipped) passed, $totalFailed failed, $totalErrors errors, $totalSkipped skipped" -ForegroundColor Gray
+    Write-Host "    Tests: $totalTests total ($integrationTests from failsafe), $($totalTests - $totalFailed - $totalErrors - $totalSkipped) passed, $totalFailed failed, $totalErrors errors, $totalSkipped skipped" -ForegroundColor Gray
 }
 
 # Helper: Parse JaCoCo coverage report
@@ -308,6 +387,7 @@ function Check-SonarQualityGate {
         return $null
     }
     $script:sonarAnalysisDone = $true
+    $script:sonarAnalysisId = $analysisId
 
     # Query Quality Gate status of exactly this analysis
     try {
@@ -502,6 +582,17 @@ if (-not $SkipSonar) {
                 } while ($issueList.Count -lt [int]$issues.total -and @($issues.issues).Count -gt 0)
                 $script:sonarIssues = $issueList
                 $script:gateStatus.metrics.sonar.openIssues = [int]$issues.total
+                # Per rule, so a review or analysis can describe the open issues without querying SonarQube
+                $script:gateStatus.metrics.sonar.byRule = @($issueList | Group-Object rule | Sort-Object Count -Descending | ForEach-Object {
+                        $first = $_.Group[0]
+                        [ordered]@{
+                            rule     = $_.Name
+                            severity = $first.severity
+                            type     = $first.type
+                            count    = $_.Count
+                            examples = @($_.Group | Select-Object -First 5 | ForEach-Object { "$($_.component -replace '^[^:]*:[^:]*:', ''):$($_.line) $($_.message)" })
+                        }
+                    })
                 Write-Host "    Open issues: $($issues.total)" -ForegroundColor Gray
                 # Hotspots are not part of any gate; recorded so agents report them without querying SonarQube themselves
                 try {
@@ -534,6 +625,24 @@ if (-not $SkipSonar) {
                 Write-Host "    Warning: could not read open issues: $_" -ForegroundColor DarkYellow
                 $script:gateStatus.warnings += "Could not read SonarQube open issues: $_"
             } }
+
+            # The Quality Gate judges "new code"; from the baseline on that must be only this task's changes,
+            # not older commits that SonarQube still counts as new (e.g. a previous task with the same project version)
+            if ($Baseline -and $script:sonarAnalysisId) {
+                try {
+                    $h = @{ Authorization = "Bearer $sonarToken" }
+                    $key = Get-SonarProperty "sonar.projectKey"
+                    $branches = (Invoke-RestMethod -Uri "$sonarUrl/api/project_branches/list?project=$([uri]::EscapeDataString($key))" -Headers $h -ErrorAction Stop).branches
+                    $mainBranch = @($branches | Where-Object { $_.isMain })[0].name
+                    Invoke-RestMethod -Method Post -Uri "$sonarUrl/api/new_code_periods/set" -Headers $h -ErrorAction Stop `
+                        -Body @{ project = $key; branch = $mainBranch; type = "SPECIFIC_ANALYSIS"; value = $script:sonarAnalysisId } | Out-Null
+                    $script:sonarNewCodeAnalysis = $script:sonarAnalysisId
+                    Write-Host "    New code period: from the baseline analysis $($script:sonarAnalysisId)" -ForegroundColor Gray
+                } catch {
+                    Write-Host "    Warning: could not set the new code period to the baseline analysis: $_" -ForegroundColor DarkYellow
+                    $script:gateStatus.warnings += "SonarQube: new code period not set to the baseline analysis ($_); the Quality Gate may also judge older changes"
+                }
+            }
         }
     }
 } else {
@@ -541,16 +650,27 @@ if (-not $SkipSonar) {
 }
 
 # sonarfix: a run without confirmed open issues (skipped, Sonar down, analysis not confirmed) is never PASSED
-if ($settings.scenario -eq "sonarfix" -and -not $Baseline -and -not $script:gateStatus.gates.ContainsKey("SonarQube-Issues")) {
+if ($sonarClean -and -not $Baseline -and -not $script:gateStatus.gates.ContainsKey("SonarQube-Issues")) {
     $script:gateStatus.gates["SonarQube-Issues"] = "FAIL"
     $script:gateStatus.status = "FAILED"
     $script:gateStatus.errors += @{
         gate    = "SonarQube-Issues"
-        summary = "Open SonarQube issues not read in a sonarfix scenario"
+        summary = "Open SonarQube issues not read in a $($settings.scenario) scenario"
         details = "SonarQube gate: $($script:gateStatus.gates['SonarQube']). Start SonarQube (..\..\scripts\env-up.ps1) and run .\tools\sdlc.ps1 without -SkipSonar"
     }
     Write-Host "[GATE FAIL] SonarQube-Issues (open issues not read)" -ForegroundColor Red
 }
+
+# All Maven runs are done: undo build rewrites before the diff gates look at the working tree
+Restore-BuildRewrites $gateStatus.workTreeHash
+if ($buildRestored.Count -gt 0) {
+    Write-Host "    Restored tracked files rewritten by the build: $($buildRestored -join ', ')" -ForegroundColor Gray
+    $gateStatus.warnings += "Tracked files rewritten by the build were restored to their content before this run: $($buildRestored -join ', ')"
+}
+if ($buildAdded.Count -gt 0) {
+    $gateStatus.warnings += "The build created files that are neither tracked nor ignored: $($buildAdded -join ', ')"
+}
+Remove-CiRepo
 
 # ============================================
 # Baseline facts (shared by -Baseline and the comparison gates)
@@ -614,6 +734,81 @@ function Set-Gate([string]$gate, [bool]$ok) {
     Write-Host "$(if ($ok) { '[GATE PASS]' } else { '[GATE FAIL]' }) $gate" -ForegroundColor $(if ($ok) { "Green" } else { "Red" })
 }
 
+# ============================================
+# GATE: Toolchain (scenario "review") - the run used the project's JDK, the CI Maven and really reached SonarQube and Xray.
+# A FAIL here is an environment problem: agents report it, they never fix it in code.
+# ============================================
+if ($settings.scenario -eq "review") {
+    $tc = $script:gateStatus.toolchain
+    $ok = $true
+    $reqMajor = Get-JavaMajor "$($tc.javaRequired)"
+    $runMajor = Get-JavaMajor "$($tc.java)"
+    if (-not $tc.java) {
+        $ok = $false
+        Add-GateError "Toolchain" "java not found" "No java on PATH after tools\use-java.ps1 (javaHome: '$($settings.javaHome)'). Re-run attach-project.ps1 (maven.jdksDir in config/project-config.yaml)."
+    } elseif ($null -eq $reqMajor) {
+        $script:gateStatus.warnings += "Toolchain: pom.xml declares no Java version (java.version / maven.compiler.release / maven.compiler.source) - JDK $runMajor not checked"
+    } elseif ($runMajor -ne $reqMajor) {
+        $ok = $false
+        Add-GateError "Toolchain" "JDK $runMajor used, pom.xml declares Java $reqMajor" "JAVA_HOME=$($tc.javaHome), sdlc-settings.json javaHome='$($settings.javaHome)'. Re-run attach-project.ps1 or add a JDK $reqMajor to maven.jdksDir."
+    } elseif (-not $settings.javaHome) {
+        $script:gateStatus.warnings += "Toolchain: javaHome not set in sdlc-settings.json - the JDK on PATH happened to match Java $reqMajor"
+    }
+
+    if ($tc.mavenWrapper) {
+        if ($tc.mavenExpected -and $tc.maven -ne $tc.mavenExpected) {
+            $script:gateStatus.warnings += "Toolchain: Maven Wrapper decides the Maven version ($($tc.maven)); the CI image uses $($tc.mavenExpected)"
+        }
+    } elseif (-not $tc.maven) {
+        $ok = $false
+        Add-GateError "Toolchain" "Maven version not detected" "'mvn -v' printed no 'Apache Maven' line (mavenHome: '$($settings.mavenHome)')."
+    } elseif (-not $tc.mavenExpected) {
+        $script:gateStatus.warnings += "Toolchain: no mavenVersion in sdlc-settings.json - Maven $($tc.maven) not compared with CI (re-run attach-project.ps1)"
+    } elseif ($tc.maven -ne $tc.mavenExpected) {
+        $ok = $false
+        Add-GateError "Toolchain" "Maven $($tc.maven) used, CI uses $($tc.mavenExpected)" "mavenHome: '$($settings.mavenHome)'. Re-run attach-project.ps1 (maven.mavenVersion / maven.mavensDir in config/project-config.yaml)."
+    }
+
+    if ($MavenSettings -and -not (Test-Path $MavenSettings)) {
+        $ok = $false
+        Add-GateError "Toolchain" "Maven settings file not found" "$MavenSettings (maven.settingsFile in config/project-config.yaml)"
+    } elseif (-not $MavenSettings) {
+        $script:gateStatus.warnings += "Toolchain: no Maven settings file configured - Maven used its default ~/.m2/settings.xml"
+    }
+
+    $sonarErrors = @($script:gateStatus.errors | Where-Object { $_.gate -eq "SonarQube" })
+    if ($SkipSonar) {
+        $ok = $false
+        Add-GateError "Toolchain" "SonarQube skipped (-SkipSonar)" "A review run must reach SonarQube: ..\..\scripts\env-up.ps1, then run without -SkipSonar"
+    } elseif ($script:gateStatus.gates["SonarQube"] -eq "FAIL") {
+        # The scanner prints this line once the server answered; after it a failure comes from the project, not the environment
+        $sonarReached = ($null -ne $scanResult) -and ("$($scanResult.Output)" -match 'Communicating with SonarQube')
+        if ($sonarReached) {
+            $script:gateStatus.warnings += "Toolchain: SonarQube server reached, the analysis failed on the project's configuration - see the SonarQube gate errors"
+        } else {
+            $ok = $false
+            Add-GateError "Toolchain" "SonarQube analysis did not run" "$(@($sonarErrors | ForEach-Object { $_.summary }) -join '; '). Start SonarQube (..\..\scripts\env-up.ps1) and check the token (sonar-token.txt, no stale SONAR_TOKEN)."
+        }
+    } elseif ($script:gateStatus.gates["SonarQube"] -eq "PASS" -and $script:gateStatus.gates["SonarQube-QualityGate"] -notin @("PASS", "FAIL")) {
+        $ok = $false
+        Add-GateError "Toolchain" "SonarQube Quality Gate not read" "The analysis was not confirmed or no Quality Gate is assigned - see warnings"
+    }
+
+    if ($SkipXray) {
+        $ok = $false
+        Add-GateError "Toolchain" "Xray skipped (-SkipXray)" "XrayScan is mandatory in CI/CD; run without -SkipXray"
+    } elseif (-not (Test-Path "jfrog-xray.properties")) {
+        $ok = $false
+        Add-GateError "Toolchain" "Xray not configured" "No jfrog-xray.properties: set enableXray/xrayUrl in config/project-config.yaml and re-run attach-project.ps1"
+    } elseif (@($script:gateStatus.errors | Where-Object { $_.gate -eq "XrayScan" -and $_.summary -match 'exit code \(2\)' }).Count -gt 0) {
+        $ok = $false
+        Add-GateError "Toolchain" "Xray scan could not run (jf, token or server)" "See the XrayScan error; token: JF_ACCESS_TOKEN or jfrog.token"
+    } elseif ($script:gateStatus.gates["XrayScan"] -eq "SKIPPED") {
+        $script:gateStatus.warnings += "Toolchain: XrayScan did not run because the build or tests failed - Xray access not confirmed"
+    }
+    Set-Gate "Toolchain" $ok
+}
+
 if ($Baseline) {
     # ============================================
     # -Baseline: record the starting point; failing legacy tests are recorded, not judged
@@ -636,6 +831,7 @@ if ($Baseline) {
         coverage            = $script:gateStatus.metrics.coverage
         sonarOpenIssues     = $script:gateStatus.metrics.sonar.openIssues
         sonarHotspotsToReview = $script:gateStatus.metrics.sonar.hotspotsToReview
+        sonarNewCodeAnalysis = $script:sonarNewCodeAnalysis
         sonarIssueKeys      = $(if ($null -ne $script:sonarIssues) { , @($script:sonarIssues | ForEach-Object { $_.key }) } else { $null })
         testFiles           = Get-TestFileFacts
         suppressions        = Get-SuppressionCount
@@ -753,7 +949,7 @@ if ($Baseline) {
                 Add-GateError "TestIntegrity" "Tests disabled" "${file}: @Disabled/@Ignore $($was.disabled) -> $($now.disabled)"
             }
             if ($now.asserts -lt $was.asserts) {
-                if ($settings.scenario -eq "sonarfix" -and $missing.Count -gt 0) {
+                if ($sonarClean -and $missing.Count -gt 0) {
                     $script:gateStatus.warnings += "TestIntegrity: fewer assertions after merging tests (guarded by TestCount): ${file}: $($was.asserts) -> $($now.asserts)"
                 } else {
                     $ok = $false
@@ -828,7 +1024,7 @@ if ($Baseline) {
     # Tests may be replaced or adapted, never reduced
     # ============================================
     $platformMigration = ($settings.scenario -eq "migration")
-    $sonarfix = ($settings.scenario -eq "sonarfix")
+    $sonarfix = $sonarClean
     if ($migration -or $platformMigration -or $sonarfix) {
         $gate = if ($migration) { "TestMigration" } elseif ($platformMigration) { "MigrationGuard" } else { "TestCount" }
         $ok = $true
@@ -901,7 +1097,7 @@ if ($Baseline) {
     foreach ($g in @("Regression", "TestIntegrity", "DiffGuard")) { $script:gateStatus.gates[$g] = "SKIPPED" }
     if ($settings.scenario -eq "tests") { $script:gateStatus.gates["TestMigration"] = "SKIPPED" }
     if ($settings.scenario -eq "migration") { $script:gateStatus.gates["MigrationGuard"] = "SKIPPED" }
-    if ($settings.scenario -eq "sonarfix") { $script:gateStatus.gates["TestCount"] = "SKIPPED" }
+    if ($sonarClean) { $script:gateStatus.gates["TestCount"] = "SKIPPED" }
 }
 
 # ============================================
@@ -946,6 +1142,8 @@ if ($ReproTest -and -not $Baseline) {
 # ============================================
 # Output Summary
 # ============================================
+# Hash after the build rewrites were undone; build output that is neither tracked nor ignored stays and is in warnings
+$script:gateStatus.workTreeHash = Get-WorkTreeHash
 $script:gateStatus | ConvertTo-Json -Depth 6 | Set-Content -Path $reportFile -Encoding UTF8
 
 Write-Host "`n========================================" -ForegroundColor Cyan
