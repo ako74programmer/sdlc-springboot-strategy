@@ -10,6 +10,7 @@
 #   .\scripts\start-scenario.ps1 -Scenario feature -RepoUrl https://gitlab.../group/app.git   (fetch-project.ps1 -> attach-project.ps1)
 #   .\scripts\start-scenario.ps1 -Fresh                            (delete the project folder and clone again, asks first)
 #   .\scripts\start-scenario.ps1 -NewTask                          (next task on an attached project: archive old task files, refresh tools)
+#   .\scripts\start-scenario.ps1 -Scenario remediation -NewTask   (fix what the last review found; the review report is archived and becomes the input)
 # ==============================================================================
 Param(
     [string]$Scenario,
@@ -22,7 +23,7 @@ Param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
-$scenarios = @("greenfield", "buildfix", "bugfix", "sonarfix", "vulnfix", "refactor", "feature", "tests", "migration", "review")
+$scenarios = @("greenfield", "buildfix", "bugfix", "sonarfix", "vulnfix", "refactor", "feature", "tests", "migration", "review", "remediation")
 
 function Get-ScenarioValue([string]$key) {
     $file = Join-Path $repoRoot $ScenarioConfig

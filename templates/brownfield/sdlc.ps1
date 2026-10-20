@@ -3,7 +3,8 @@
 #   .\tools\sdlc.ps1 -Baseline           record the starting state (sdlc-baseline.json)
 #   .\tools\sdlc.ps1                     gates + Regression/TestIntegrity/DiffGuard against the baseline
 #                                        (+ TestMigration when sdlc-settings.json scenario is "tests", MigrationGuard for "migration",
-#                                         TestCount and SonarQube-Issues for "sonarfix", Toolchain for "review")
+#                                         TestCount and SonarQube-Issues for "sonarfix" and "remediation", Toolchain for "review")
+#   secrets.local.env (KEY=VALUE, filled by the user, never committed) is loaded for the Maven runs; values are masked in the report
 #   .\tools\sdlc.ps1 -ReproTest Cls#m     also prove a bug: the test must be red first, green after the fix
 #   .\tools\sdlc.ps1 -CiParity           build like CI: empty temporary local Maven repository (slow, downloads everything)
 #   .\tools\sdlc.ps1 -CheckReport        does sdlc-report.json describe the current code? (exit 0 = yes)
@@ -122,11 +123,34 @@ if ($CheckReport) {
 }
 $gateStatus.workTreeHash = Get-WorkTreeHash
 
-# sonarfix is judged by SonarQube data: a baseline without the open issue keys would make Regression and SonarQube-Issues meaningless
-$sonarClean = ($settings.scenario -eq "sonarfix")
-if ($Baseline -and $SkipSonar -and $sonarClean) {
+# sonarfix is judged by SonarQube data: a baseline without the open issue keys would make Regression and SonarQube-Issues meaningless.
+# remediation also ends at 0 open issues, but its baseline may lack SonarQube data: a broken Sonar configuration is one of its findings.
+$sonarClean = ($settings.scenario -in @("sonarfix", "remediation"))
+if ($Baseline -and $SkipSonar -and $settings.scenario -eq "sonarfix") {
     Write-Host "[BASELINE] Not recorded: -SkipSonar is not allowed for a $($settings.scenario) baseline. Start SonarQube (..\..\scripts\env-up.ps1) and run .\tools\sdlc.ps1 -Baseline" -ForegroundColor Red
     exit 1
+}
+
+# secrets.local.env (filled by the user, never committed) for tests that need credentials; values never reach the report
+$secrets = $null
+if (Test-Path (Join-Path $PSScriptRoot "load-secrets.ps1")) {
+    $secrets = & (Join-Path $PSScriptRoot "load-secrets.ps1")
+    if ($secrets.Names.Count -gt 0) { $gateStatus.secretsLoaded = @($secrets.Names) }
+}
+function Restore-SecretEnv {
+    if ($script:secrets) {
+        foreach ($k in $script:secrets.Previous.Keys) { [Environment]::SetEnvironmentVariable($k, $script:secrets.Previous[$k], "Process") }
+    }
+}
+function Hide-Secrets([string]$text) {
+    if ($script:secrets) {
+        foreach ($v in $script:secrets.Values) {
+            $text = $text.Replace($v, "***")
+            $jsonForm = ($v | ConvertTo-Json).Trim('"')
+            if ($jsonForm -ne $v) { $text = $text.Replace($jsonForm, "***") }
+        }
+    }
+    return $text
 }
 
 # -CiParity: CI builds start from an empty local repository; plugin and transport conflicts show up only while downloading
@@ -815,6 +839,7 @@ if ($Baseline) {
     # ============================================
     if ($settings.scenario -eq "sonarfix" -and $null -eq $script:sonarIssues) {
         Write-Host "`n[BASELINE] Not recorded: SonarQube open issues were not read (SonarQube: $($script:gateStatus.gates['SonarQube'])). Start SonarQube (..\..\scripts\env-up.ps1) and run .\tools\sdlc.ps1 -Baseline again" -ForegroundColor Red
+        Restore-SecretEnv
         exit 1
     }
     $gitBase = $preBuildGitBase
@@ -918,7 +943,7 @@ if ($Baseline) {
     # In a test migration (and when sonarfix merges tests into parameterized ones) methods are replaced;
     # TestMigration / TestCount then guard the number of executed tests
     $migration = ($settings.scenario -eq "tests")
-    $testsReplaceable = ($settings.scenario -in @("tests", "sonarfix"))
+    $testsReplaceable = ($settings.scenario -in @("tests", "sonarfix", "remediation"))
     $nowFacts = Get-TestFileFacts
     if ($base.testFiles) {
         foreach ($p in $base.testFiles.PSObject.Properties) {
@@ -1144,7 +1169,8 @@ if ($ReproTest -and -not $Baseline) {
 # ============================================
 # Hash after the build rewrites were undone; build output that is neither tracked nor ignored stays and is in warnings
 $script:gateStatus.workTreeHash = Get-WorkTreeHash
-$script:gateStatus | ConvertTo-Json -Depth 6 | Set-Content -Path $reportFile -Encoding UTF8
+Hide-Secrets ($script:gateStatus | ConvertTo-Json -Depth 6) | Set-Content -Path $reportFile -Encoding UTF8
+Restore-SecretEnv
 
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "          GATE SUMMARY                  " -ForegroundColor Cyan

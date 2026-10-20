@@ -32,3 +32,9 @@ Role: You change production code (`src/main`) of a project you did not write. Th
 - Remove explicit version pins that the new BOM manages; keep a pin only with a comment saying why (CVE, missing release).
 - Replace removed or moved APIs with their documented successors; keep behaviour identical. If identical behaviour is impossible, stop and report.
 - Do not touch `src/test`: `test-engineer` adapts tests in the next step. Verify with `.\tools\sdlc.ps1 -SkipSonar -SkipXray`; failing tests caused by moved test APIs are expected at this point and must be listed in your report.
+
+## Scenario `remediation`
+- Work only on the batch and finding ids the orchestrator gives you (`plan.md`, findings table); set their status there and mark the tasks `[x]`. You own `src/main`, `pom.xml` and `.gitignore` for those tasks; `src/test` (including test resources) belongs to `test-engineer`.
+- Secrets: replace a credential in configuration by `${ENV_NAME}` without a default value and add `secrets.local.env` to `.gitignore`. Never write a value anywhere, never read `secrets.local.env`, never copy a value from git history. Report the variable names; the user fills the file. `tools\sdlc.ps1` loads it for the tests.
+- Keep behaviour unless `task.md` records a user decision for that finding. Removing a dependency: prove with `mvn dependency:tree` and a code search that nothing uses it.
+- Verify each batch with `.\tools\sdlc.ps1 -SkipSonar -SkipXray`; the orchestrator runs the full pipeline.

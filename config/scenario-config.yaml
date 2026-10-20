@@ -6,12 +6,13 @@
 # The generator replaces only folders carrying its marker; anything else needs -Force.
 projectsDir: projects
 
-# greenfield | buildfix | bugfix | sonarfix | vulnfix | refactor | feature | tests | migration | review
+# greenfield | buildfix | bugfix | sonarfix | vulnfix | refactor | feature | tests | migration | review | remediation
 # Pick by what changes: only src/test -> tests; src/main without behaviour change -> refactor;
 # platform/framework version -> migration; open SonarQube issues -> sonarfix (target 0);
-# code or security review of a change or of the whole project, report only, nothing changed -> review.
-# Guides: doc/tutorial/brownfield-spock-to-junit5.md, brownfield-springboot3-to-4.md, brownfield-sonarfix.md, brownfield-review.md
-scenarioType: review
+# code or security review of a change or of the whole project, report only, nothing changed -> review;
+# fix what the last review found (its report is the input; run with start-scenario.ps1 -NewTask) -> remediation.
+# Guides: doc/tutorial/brownfield-spock-to-junit5.md, brownfield-springboot3-to-4.md, brownfield-sonarfix.md, brownfield-review.md, brownfield-remediation.md
+scenarioType: remediation
 # Folder name inside projectsDir (ignored for greenfield)
 scenarioProject: "be-wesola_banda_piratow"
 # Optional: start-scenario.ps1 runs git clone into projectsDir/scenarioProject when the folder is missing
@@ -27,7 +28,7 @@ maxOfficialCiAttempts: 2
 sameGateStopAfter: 3
 
 # Brownfield gates (copied into the project as sdlc-settings.json by attach-project.ps1)
-diffGuardMaxFiles: 15             # 15 for fixes, 40 for a feature, 200 for a test or platform migration (unused in review)
-diffGuardMaxLines: 400            # 400 for fixes, 1500 for a feature
+diffGuardMaxFiles: 40             # 15 for fixes, 40 for a feature or remediation, 200 for a test or platform migration (unused in review)
+diffGuardMaxLines: 1500           # 400 for fixes, 1500 for a feature or remediation
 diffGuardMode: warn               # warn | fail
 coverageTolerance: 0.0            # allowed drop of line coverage vs baseline, in percentage points

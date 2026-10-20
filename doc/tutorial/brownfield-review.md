@@ -11,7 +11,7 @@ Dwa warianty, wybierane treścią zadania:
 
 Przy okazji przegląd mierzy projekt: czy buduje się na właściwym JDK i Mavenie z CI, jakie bramki są czerwone, ile zgłoszeń ma Sonar i Xray. Te wyniki są ustaleniami w raporcie, a nie zadaniami do zrobienia.
 
-Gdy chcesz, żeby projekt po przeglądzie był czysty (bramki zielone, Sonar i Xray na zero), to inne zadanie: najpierw `review`, potem właściwy scenariusz naprawczy (`buildfix`, `sonarfix`) albo przyszły `onboarding`.
+Gdy chcesz, żeby projekt po przeglądzie był czysty (bramki zielone, Sonar i Xray na zero), to następne zadanie: [`remediation`](brownfield-remediation.md), które bierze ten raport jako wsad.
 
 ## 1. Co sprawdza pipeline
 
@@ -39,7 +39,7 @@ W `sdlc-report.json` są: `toolchain` (użyte Java i Maven, oczekiwane wersje, w
 | Bezpieczeństwo | security-reviewer | `security-review.md`: OWASP Top 10, sekrety w repozytorium (tylko miejsce, bez wartości), dane osobowe w logach, zależności. Jedyne źródło ocen bezpieczeństwa: komponent z Xray ma ocenę swojego najpoważniejszego CVE |
 | Raport | orchestrator | podsumowanie w czacie, dowód, że żaden śledzony plik się nie zmienił. Raportów sam nie poprawia - odsyła je autorowi |
 
-Przegląd o nic nie pyta. Pytania do kolejnych zadań są przy tych zadaniach, z dopiskiem „odpowiedz przy starcie zadania”. Kolejne zadania mają typy, które workflow obsługuje (`buildfix`, `bugfix`, `sonarfix`, `feature`, `tests`, `migration`); podbicia wersji pod Xray, konfiguracja Sonara i builda, sekrety w konfiguracji, nieużywane zależności i utwardzanie bezpieczeństwa to `onboarding (planned)`. CVE z Xray bez wersji naprawczej dotyczy tylko skanowanej wersji: raport podaje najnowszą łatkę do sprawdzenia i nigdy nie proponuje akceptacji.
+Przegląd o nic nie pyta. Pytania do kolejnych zadań są przy tych zadaniach, z dopiskiem „odpowiedz przy starcie zadania”. Kolejne zadania mają typy, które workflow obsługuje (`buildfix`, `bugfix`, `sonarfix`, `feature`, `tests`, `migration`); podbicia wersji pod Xray, konfiguracja Sonara i builda, sekrety w konfiguracji, nieużywane zależności i utwardzanie bezpieczeństwa należą do `remediation` (następne zadanie, wsadem jest ten raport). CVE z Xray bez wersji naprawczej dotyczy tylko skanowanej wersji: raport podaje najnowszą łatkę do sprawdzenia i nigdy nie proponuje akceptacji.
 
 Nie biorą udziału: planner, developer, test-engineer, build-doctor, bug-hunter, quality-fixer.
 

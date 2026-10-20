@@ -131,6 +131,8 @@ Write-Host "`n[2/6] SDLC tools and agents ($(if ($NewTask) { 'refreshed from tem
 Add-ProjectFile (Join-Path $templates "sdlc.ps1") "tools\sdlc.ps1" -Overwrite:$NewTask
 Add-ProjectFile (Join-Path $templates "recon.ps1") "tools\recon.ps1" -Overwrite:$NewTask
 Add-ProjectFile (Join-Path $templates "use-java.ps1") "tools\use-java.ps1" -Overwrite:$NewTask
+Add-ProjectFile (Join-Path $templates "load-secrets.ps1") "tools\load-secrets.ps1" -Overwrite:$NewTask
+Add-ProjectFile (Join-Path $templates "run-local.ps1") "tools\run-local.ps1" -Overwrite:$NewTask
 Add-ProjectFile (Join-Path $repoRoot "templates\shared\copilot-quota.ps1") "tools\copilot-quota.ps1" -Overwrite:$NewTask
 foreach ($agent in Get-ChildItem (Join-Path $templates "agents") -File) {
     Add-ProjectFile $agent.FullName ".github\agents\$($agent.Name)" -Overwrite:$NewTask
@@ -360,7 +362,7 @@ $sdlcSettings = [ordered]@{
     diffGuardMaxLines     = Get-CfgNumber "diffGuardMaxLines" 400
     diffGuardMode         = $(if ($scenarioCfg["diffGuardMode"]) { $scenarioCfg["diffGuardMode"] } else { "warn" })
     coverageTolerance     = Get-CfgNumber "coverageTolerance" 0.0
-    sonarMaxOpenIssues    = $(if ($Scenario -eq "sonarfix") { 0 } else { -1 })
+    sonarMaxOpenIssues    = $(if ($Scenario -in @("sonarfix", "remediation")) { 0 } else { -1 })
     maxFixIterations      = Get-CfgNumber "maxFixIterations" 5
     maxOfficialCiAttempts = Get-CfgNumber "maxOfficialCiAttempts" 2
     sameGateStopAfter     = Get-CfgNumber "sameGateStopAfter" 3
@@ -368,6 +370,31 @@ $sdlcSettings = [ordered]@{
 if ($Scenario -eq "migration") {
     $sdlcSettings.migrationBootVersion = $scenarioCfg["migrationBootVersion"]
     $sdlcSettings.migrationJavaVersion = $scenarioCfg["migrationJavaVersion"]
+}
+if ($Scenario -eq "remediation") {
+    # Input of a remediation: the newest review report (task.md "Scenario: review" + analysis.md + security-review.md)
+    # archived by -NewTask in sdlc-history/<timestamp>/; the remediation writes its own task.md and security-review.md in the root
+    $reviewSource = ""
+    $candidates = @(Get-ChildItem (Join-Path $projectPath "sdlc-history") -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending | ForEach-Object { $_.FullName })
+    foreach ($dir in $candidates) {
+        $taskFile = Join-Path $dir "task.md"
+        if ((Test-Path (Join-Path $dir "analysis.md")) -and (Test-Path (Join-Path $dir "security-review.md")) -and
+            (Test-Path $taskFile) -and (Select-String -Path $taskFile -Pattern '^\s*Scenario:\s*review\b' -Quiet)) {
+            $reviewSource = $dir.Substring($projectPath.Length + 1).Replace('\', '/')
+            break
+        }
+    }
+    $sdlcSettings.reviewSource = $reviewSource
+    $rootTask = Join-Path $projectPath "task.md"
+    if ((Test-Path $rootTask) -and (Select-String -Path $rootTask -Pattern '^\s*Scenario:\s*review\b' -Quiet)) {
+        Write-Host "    The review report is still in the project root - run with -NewTask so it moves to sdlc-history/ and is not overwritten" -ForegroundColor DarkYellow
+    }
+    if ($reviewSource) {
+        Write-Host "    Review report for remediation: $reviewSource" -ForegroundColor Green
+    } else {
+        Write-Host "    No archived review report in sdlc-history/ - run a review, then start-scenario.ps1 -Scenario remediation -NewTask" -ForegroundColor DarkYellow
+    }
 }
 $sdlcSettings | ConvertTo-Json | Set-Content -Path (Join-Path $projectPath "sdlc-settings.json") -Encoding UTF8
 Write-Host "    sdlc-settings.json written (scenario: $(if ($Scenario) { $Scenario } else { 'not set' }))" -ForegroundColor Green
@@ -396,7 +423,7 @@ if ($isGit) {
         New-Item -ItemType Directory -Path (Split-Path $excludeFile -Parent) -Force | Out-Null
         $existing = @(if (Test-Path $excludeFile) { Get-Content $excludeFile })
         $wanted = @($added) + @("sdlc-attach.json", "sdlc-settings.json", "sdlc-report.json", "sdlc-baseline.json", "sdlc-repro.json", "sdlc-cost.json",
-            "recon-report.json", "sdlc-run.log", "task.md", "analysis.md", "plan.md", "security-review.md", "*.token", "sonar-token.txt", "sdlc-history/")
+            "recon-report.json", "sdlc-run.log", "task.md", "analysis.md", "plan.md", "security-review.md", "*.token", "sonar-token.txt", "sdlc-history/", "secrets.local.env")
         $missing = @($wanted | Select-Object -Unique | ForEach-Object { "/" + $_.TrimStart('/') } |
             Where-Object { $existing -notcontains $_ })
         if ($missing.Count -gt 0) {
