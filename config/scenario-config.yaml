@@ -6,19 +6,24 @@
 # The generator replaces only folders carrying its marker; anything else needs -Force.
 projectsDir: projects
 
-# greenfield | buildfix | bugfix | sonarfix | vulnfix | refactor | feature | tests | migration | review | remediation
+# greenfield | buildfix | bugfix | sonarfix | vulnfix | vulnquick | refactor | feature | tests | migration | review | remediation
 # Pick by what changes: only src/test -> tests; src/main without behaviour change -> refactor;
 # platform/framework version -> migration; open SonarQube issues -> sonarfix (target 0);
 # code or security review of a change or of the whole project, report only, nothing changed -> review;
-# fix what the last review found (its report is the input; run with start-scenario.ps1 -NewTask) -> remediation.
-# Guides: doc/tutorial/brownfield-spock-to-junit5.md, brownfield-springboot3-to-4.md, brownfield-sonarfix.md, brownfield-review.md, brownfield-remediation.md
-scenarioType: remediation
+# fix what the last review found (its report is the input; run with start-scenario.ps1 -NewTask) -> remediation;
+# vulnerable dependencies (Xray / corporate scan, CYB tasks); moves to the target versions below and ends clean: Xray 0, SonarQube 0 -> vulnfix;
+# the same, quick: only the version numbers in pom.xml for the CYB tasks of a Jira filter, no code, no SonarQube, no plan -> vulnquick.
+# Guides: doc/tutorial/brownfield-spock-to-junit5.md, brownfield-springboot3-to-4.md, brownfield-sonarfix.md, brownfield-review.md, brownfield-remediation.md, brownfield-vulnfix.md, brownfield-vulnquick.md
+scenarioType: vulnquick
 # Folder name inside projectsDir (ignored for greenfield)
-scenarioProject: "be-wesola_banda_piratow"
+scenarioProject: "gekon-users"
 # Optional: start-scenario.ps1 runs git clone into projectsDir/scenarioProject when the folder is missing
-scenarioRepoUrl: "https://gitlab.centrala.bzwbk/dev-tournament-base/forks-demo/be-wesola_banda_piratow.git"
+scenarioRepoUrl: "https://gitlab.centrala.bzwbk/gekon/gekon-users.git"
+# Optional: branch the working branch sdlc-work starts from (origin/<branch>, fetched first), e.g. feature.
+# Empty = the checked-out branch (after a clone: the default branch). An existing sdlc-work with its own commits is never replaced.
+scenarioBaseBranch: "feature"
 
-# Migration targets (scenarioType: migration) - checked by the MigrationGuard gate; the JDK of migrationJavaVersion is used
+# Target versions - scenarioType migration and vulnfix: pom.xml must declare them (MigrationGuard / VulnGuard gate); the JDK of migrationJavaVersion is used
 migrationBootVersion: 4.1.1
 migrationJavaVersion: 25
 
@@ -28,7 +33,7 @@ maxOfficialCiAttempts: 2
 sameGateStopAfter: 3
 
 # Brownfield gates (copied into the project as sdlc-settings.json by attach-project.ps1)
-diffGuardMaxFiles: 40             # 15 for fixes, 40 for a feature or remediation, 200 for a test or platform migration (unused in review)
-diffGuardMaxLines: 1500           # 400 for fixes, 1500 for a feature or remediation
+diffGuardMaxFiles: 40             # 15 for fixes, 40 for a feature, remediation or vulnfix, 200 for a test or platform migration (unused in review; vulnquick allows only build files)
+diffGuardMaxLines: 1500           # 400 for fixes, 1500 for a feature, remediation or vulnfix
 diffGuardMode: warn               # warn | fail
 coverageTolerance: 0.0            # allowed drop of line coverage vs baseline, in percentage points

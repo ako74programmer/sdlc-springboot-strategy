@@ -11,11 +11,14 @@
 #   .\scripts\start-scenario.ps1 -Fresh                            (delete the project folder and clone again, asks first)
 #   .\scripts\start-scenario.ps1 -NewTask                          (next task on an attached project: archive old task files, refresh tools)
 #   .\scripts\start-scenario.ps1 -Scenario remediation -NewTask   (fix what the last review found; the review report is archived and becomes the input)
+#   .\scripts\start-scenario.ps1 -Scenario vulnquick -NewTask     (quick Xray fix from a Jira filter: version numbers in pom.xml only)
+#   .\scripts\start-scenario.ps1 -BaseBranch feature              (sdlc-work starts from origin/feature instead of the checked-out branch)
 # ==============================================================================
 Param(
     [string]$Scenario,
     [string]$Project,
     [string]$RepoUrl,
+    [string]$BaseBranch,
     [string]$ScenarioConfig = "config/scenario-config.yaml",
     [switch]$Fresh,
     [switch]$NewTask
@@ -23,7 +26,7 @@ Param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
-$scenarios = @("greenfield", "buildfix", "bugfix", "sonarfix", "vulnfix", "refactor", "feature", "tests", "migration", "review", "remediation")
+$scenarios = @("greenfield", "buildfix", "bugfix", "sonarfix", "vulnfix", "vulnquick", "refactor", "feature", "tests", "migration", "review", "remediation")
 
 function Get-ScenarioValue([string]$key) {
     $file = Join-Path $repoRoot $ScenarioConfig
@@ -62,7 +65,9 @@ try {
         if ($RepoUrl) {
             & (Join-Path $PSScriptRoot "fetch-project.ps1") -RepoUrl $RepoUrl -Project $Project -ScenarioConfig $ScenarioConfig -Fresh:$Fresh
         }
-        & (Join-Path $PSScriptRoot "attach-project.ps1") -Project $Project -Scenario $Scenario -NewTask:$NewTask
+        $attachArgs = @{ Project = $Project; Scenario = $Scenario; NewTask = $NewTask }
+        if ($BaseBranch) { $attachArgs.BaseBranch = $BaseBranch }
+        & (Join-Path $PSScriptRoot "attach-project.ps1") @attachArgs
     }
 } finally {
     Pop-Location

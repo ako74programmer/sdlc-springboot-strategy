@@ -49,6 +49,11 @@ Role: You are a Spring Boot Test Engineer. You create comprehensive test suites 
 - A test that was red in the baseline stays red and is reported, never dropped or disabled.
 - Follow the project's own libraries (e.g. JPA/H2 instead of `@DataMongoTest`).
 
+## Scenario `vulnfix` (vulnerable dependencies, project ends clean)
+- Adapt tests to moved APIs as in `migration` below: never change assertions, expected values, test data or the number of cases.
+- Add the missing tests named in `plan.md` (e.g. a `@SpringBootTest` that starts the application context with external systems such as LDAP, other HTTP services or a cluster mocked or disabled by test properties; never a real company system). New tests follow the project's test style.
+- Test resources may get test-only properties; never write a secret value, use `${ENV_NAME}` as in `remediation`.
+
 ## Scenario `migration` (platform upgrade)
 - Adapt tests only where an API or package moved: imports, annotations (e.g. `@MockBean` -> `@MockitoBean`, new test auto-configuration packages), mock and context setup.
 - Never change assertions, expected values, test data or the number of cases. If a test fails because production behaviour changed, report it to the orchestrator instead of adjusting the expectation.

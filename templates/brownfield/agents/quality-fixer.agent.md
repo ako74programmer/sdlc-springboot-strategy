@@ -93,6 +93,12 @@ Role: You are a specialized Spring Boot Quality Fixer. Your sole objective is to
 - Work only on the batch and finding ids the orchestrator gives you (`plan.md`, findings table); set their status there and mark the tasks `[x]`. Xray batches cover every vulnerable component as in `XrayScan` above; SonarQube batches follow `SonarQube-Issues (sonarfix scenario)` - the gate also requires 0 open issues here. A SonarQube configuration fix goes into `pom.xml` (never `sonar-project.properties`, which belongs to the tools).
 - Never read `secrets.local.env` or write a secret value anywhere.
 
+### Scenario `vulnfix`
+- Work only on the batch the orchestrator gives you (`plan.md`) and mark its tasks `[x]`. Xray tasks follow `XrayScan` above (property override with a comment naming the CVE, direct version, containing library; never a duplicate dependency, an exclusion of a needed library or an ignore rule). SonarQube batches follow `SonarQube-Issues (sonarfix scenario)` - the gate requires 0 open issues here too.
+- Do not change the parent or Java version away from `migrationBootVersion` / `migrationJavaVersion`; `VulnGuard` fails then.
+- Prove an Xray task with `.\tools\sdlc.ps1 -SkipSonar` (the component is gone from `target/xray-findings.json`) and a SonarQube batch with `mvn test`. If a new version breaks compilation or a test, report the error with the version to the orchestrator - production code goes to `developer`, tests to `test-engineer`.
+- Report per component: version before -> after, the CVEs that disappeared, what is still open.
+
 ### TestIntegrity
 - A test was deleted, renamed, disabled, lost assertions, or `NOSONAR`/`@SuppressWarnings`/`sonar-project.properties` changes appeared. Restore the original test or configuration. This gate never passes by editing tests to be weaker.
 

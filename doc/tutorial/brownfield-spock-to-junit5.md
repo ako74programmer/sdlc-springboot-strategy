@@ -13,7 +13,8 @@ Ogólny opis kroków brownfield (MCP, środowisko, raport): [brownfield-bff-temp
 | `bugfix` | Opisany błąd, stack trace albo czerwony test | "endpoint zwraca 500 dla pustej listy" | tak |
 | `sonarfix` | Trzeba usunąć problemy SonarQube / zazielenić Quality Gate | 12 code smells, 1 bug | tak |
 | `feature` | Nowe wymaganie biznesowe (zwykle story z Jiry) | nowy endpoint, nowe pole | tak |
-| `vulnfix` | Tylko podatności zależności (Xray) | podbicie Tomcata | nie |
+| `vulnfix` | Podatności zależności (Xray), projekt kończy czysty: wersje docelowe, Xray 0, Sonar 0 | podbicie Tomcata | tak ([brownfield-vulnfix.md](brownfield-vulnfix.md)) |
+| `vulnquick` | Szybka poprawka zadań CYB z filtra Jiry: tylko numery wersji w `pom.xml` | `jackson-2-bom.version` 2.21.2 -> 2.21.8 | tak ([brownfield-vulnquick.md](brownfield-vulnquick.md)) |
 | `refactor` | Zmiana struktury **kodu produkcyjnego** bez zmiany zachowania | wydzielenie serwisu, rozbicie klasy | nie |
 | `tests` | Praca **tylko na testach**: dopisanie, wymiana frameworka, poprawa jakości | Spock -> JUnit 5, pokrycie 40% -> 70% | tak |
 | `migration` | Zmiana wersji platformy lub frameworka w **kodzie produkcyjnym** | Spring Boot 3 -> 4, Java 17 -> 21 | tak ([brownfield-springboot3-to-4.md](brownfield-springboot3-to-4.md)) |

@@ -3,7 +3,8 @@
 #   .\tools\sdlc.ps1 -Baseline           record the starting state (sdlc-baseline.json)
 #   .\tools\sdlc.ps1                     gates + Regression/TestIntegrity/DiffGuard against the baseline
 #                                        (+ TestMigration when sdlc-settings.json scenario is "tests", MigrationGuard for "migration",
-#                                         TestCount and SonarQube-Issues for "sonarfix" and "remediation", Toolchain for "review")
+#                                         TestCount and SonarQube-Issues for "sonarfix" and "remediation", Toolchain for "review",
+#                                         VulnGuard and SonarQube-Issues for "vulnfix", VulnGuard for "vulnquick")
 #   secrets.local.env (KEY=VALUE, filled by the user, never committed) is loaded for the Maven runs; values are masked in the report
 #   .\tools\sdlc.ps1 -ReproTest Cls#m     also prove a bug: the test must be red first, green after the fix
 #   .\tools\sdlc.ps1 -CiParity           build like CI: empty temporary local Maven repository (slow, downloads everything)
@@ -63,6 +64,7 @@ $gateStatus = @{
         tests    = @{ total = 0; passed = 0; failed = 0; skipped = 0; errors = 0; integration = 0 }
         coverage = @{ line = $null; branch = $null }
         sonar    = @{ openIssues = $null; hotspotsToReview = $null }
+        xray     = @{ findings = $null }
     }
     baseline  = $null
     delta     = $null
@@ -123,11 +125,18 @@ if ($CheckReport) {
 }
 $gateStatus.workTreeHash = Get-WorkTreeHash
 
-# sonarfix is judged by SonarQube data: a baseline without the open issue keys would make Regression and SonarQube-Issues meaningless.
+# sonarfix and vulnfix are judged by SonarQube data: a baseline without the open issue keys would make Regression and SonarQube-Issues meaningless.
 # remediation also ends at 0 open issues, but its baseline may lack SonarQube data: a broken Sonar configuration is one of its findings.
-$sonarClean = ($settings.scenario -in @("sonarfix", "remediation"))
-if ($Baseline -and $SkipSonar -and $settings.scenario -eq "sonarfix") {
+$sonarClean = ($settings.scenario -in @("sonarfix", "remediation", "vulnfix"))
+$sonarBaselineRequired = ($settings.scenario -in @("sonarfix", "vulnfix"))
+if ($Baseline -and $SkipSonar -and $sonarBaselineRequired) {
     Write-Host "[BASELINE] Not recorded: -SkipSonar is not allowed for a $($settings.scenario) baseline. Start SonarQube (..\..\scripts\env-up.ps1) and run .\tools\sdlc.ps1 -Baseline" -ForegroundColor Red
+    exit 1
+}
+# vulnfix and vulnquick are judged by the corporate Xray scan: their baseline must list the findings
+$xrayBaselineRequired = ($settings.scenario -in @("vulnfix", "vulnquick"))
+if ($Baseline -and $SkipXray -and $xrayBaselineRequired) {
+    Write-Host "[BASELINE] Not recorded: -SkipXray is not allowed for a $($settings.scenario) baseline. Run .\tools\sdlc.ps1 -Baseline without it" -ForegroundColor Red
     exit 1
 }
 
@@ -518,6 +527,13 @@ if ((-not $SkipXray) -and (Test-Path "jfrog-xray.properties")) {
 } else {
     $script:gateStatus.gates["XrayScan"] = "SKIPPED"
 }
+# Findings of a scan that really ran (exit 0 or 1); $null when it was skipped or could not run (exit 2: jf, token, server)
+$xrayFindingList = $null
+if ($script:gateStatus.gates["XrayScan"] -in @("PASS", "FAIL") -and (Test-Path "target/xray-findings.json") -and
+    -not @($script:gateStatus.errors | Where-Object { $_.gate -eq "XrayScan" -and $_.summary -match 'exit code \(2\)' }).Count) {
+    $xrayFindingList = @(Get-Content "target/xray-findings.json" -Raw | ConvertFrom-Json | ForEach-Object { $_ })
+    $script:gateStatus.metrics.xray.findings = $xrayFindingList.Count
+}
 
 # ============================================
 # GATE 5: SonarQube Analysis + Quality Gate
@@ -837,8 +853,16 @@ if ($Baseline) {
     # ============================================
     # -Baseline: record the starting point; failing legacy tests are recorded, not judged
     # ============================================
-    if ($settings.scenario -eq "sonarfix" -and $null -eq $script:sonarIssues) {
+    if ($sonarBaselineRequired -and $null -eq $script:sonarIssues) {
         Write-Host "`n[BASELINE] Not recorded: SonarQube open issues were not read (SonarQube: $($script:gateStatus.gates['SonarQube'])). Start SonarQube (..\..\scripts\env-up.ps1) and run .\tools\sdlc.ps1 -Baseline again" -ForegroundColor Red
+        Restore-SecretEnv
+        exit 1
+    }
+    if ($xrayBaselineRequired -and $null -eq $xrayFindingList) {
+        $why = if (-not (Test-Path "jfrog-xray.properties")) { "no jfrog-xray.properties (enableXray/xrayUrl in config/project-config.yaml, then attach-project.ps1)" }
+               elseif ($script:gateStatus.gates["XrayScan"] -eq "SKIPPED") { "the build or tests did not pass, so there was no jar to scan - that is a buildfix task first" }
+               else { "jf, token or Xray server - see the XrayScan error" }
+        Write-Host "`n[BASELINE] Not recorded: the Xray scan did not run ($why). $($settings.scenario) needs the scanned findings; fix it and run .\tools\sdlc.ps1 -Baseline again" -ForegroundColor Red
         Restore-SecretEnv
         exit 1
     }
@@ -858,6 +882,7 @@ if ($Baseline) {
         sonarHotspotsToReview = $script:gateStatus.metrics.sonar.hotspotsToReview
         sonarNewCodeAnalysis = $script:sonarNewCodeAnalysis
         sonarIssueKeys      = $(if ($null -ne $script:sonarIssues) { , @($script:sonarIssues | ForEach-Object { $_.key }) } else { $null })
+        xrayFindings        = $(if ($null -ne $xrayFindingList) { , @($xrayFindingList | ForEach-Object { [ordered]@{ severity = $_.severity; component = $_.component; cves = @($_.cves); fixedVersions = @($_.fixedVersions) } }) } else { $null })
         testFiles           = Get-TestFileFacts
         suppressions        = Get-SuppressionCount
         sonarPropertiesHash = Get-FileHashOrNull "sonar-project.properties"
@@ -943,7 +968,7 @@ if ($Baseline) {
     # In a test migration (and when sonarfix merges tests into parameterized ones) methods are replaced;
     # TestMigration / TestCount then guard the number of executed tests
     $migration = ($settings.scenario -eq "tests")
-    $testsReplaceable = ($settings.scenario -in @("tests", "sonarfix", "remediation"))
+    $testsReplaceable = ($settings.scenario -in @("tests", "sonarfix", "remediation", "vulnfix"))
     $nowFacts = Get-TestFileFacts
     if ($base.testFiles) {
         foreach ($p in $base.testFiles.PSObject.Properties) {
@@ -1049,9 +1074,11 @@ if ($Baseline) {
     # Tests may be replaced or adapted, never reduced
     # ============================================
     $platformMigration = ($settings.scenario -eq "migration")
+    $vulnfix = ($settings.scenario -eq "vulnfix")
+    $vulnquick = ($settings.scenario -eq "vulnquick")
     $sonarfix = $sonarClean
-    if ($migration -or $platformMigration -or $sonarfix) {
-        $gate = if ($migration) { "TestMigration" } elseif ($platformMigration) { "MigrationGuard" } else { "TestCount" }
+    if ($migration -or $platformMigration -or $sonarfix -or $vulnfix -or $vulnquick) {
+        $gate = if ($migration) { "TestMigration" } elseif ($platformMigration) { "MigrationGuard" } elseif ($vulnfix -or $vulnquick) { "VulnGuard" } else { "TestCount" }
         $ok = $true
         # Spock reports an unrolled feature once more as a container: "<feature>" next to "<feature> [..]", or with unresolved #placeholders
         $byClass = @{}
@@ -1092,8 +1119,8 @@ if ($Baseline) {
             } else {
                 $script:gateStatus.warnings += "TestMigration: no git baseline - src/main changes not checked"
             }
-        } elseif ($platformMigration) {
-            # The migration is done only when pom.xml declares the target versions
+        } elseif ($platformMigration -or $vulnfix) {
+            # The migration (and a vulnfix, which moves to the same targets) is done only when pom.xml declares the target versions
             [xml]$pomNow = Get-Content "pom.xml" -Raw
             $pomValue = { param($path) $n = $pomNow.SelectSingleNode("/" + (($path -split '/' | ForEach-Object { "*[local-name()='$_']" }) -join '/')); if ($n) { $n.InnerText.Trim() } }
             $bootNow = & $pomValue "project/parent/version"
@@ -1101,11 +1128,36 @@ if ($Baseline) {
             if (-not $javaNow) { $javaNow = & $pomValue "project/properties/maven.compiler.release" }
             if ($settings.migrationBootVersion -and $bootNow -ne $settings.migrationBootVersion) {
                 $ok = $false
-                Add-GateError $gate "Spring Boot version is not the migration target" "pom.xml parent: $bootNow, target: $($settings.migrationBootVersion)"
+                Add-GateError $gate "Spring Boot version is not the target (migrationBootVersion)" "pom.xml parent: $bootNow, target: $($settings.migrationBootVersion)"
             }
             if ($settings.migrationJavaVersion -and $javaNow -ne "$($settings.migrationJavaVersion)") {
                 $ok = $false
-                Add-GateError $gate "Java version is not the migration target" "pom.xml: $javaNow, target: $($settings.migrationJavaVersion)"
+                Add-GateError $gate "Java version is not the target (migrationJavaVersion)" "pom.xml: $javaNow, target: $($settings.migrationJavaVersion)"
+            }
+            if ($vulnfix -and $script:gateStatus.gates["XrayScan"] -notin @("PASS", "FAIL")) {
+                $ok = $false
+                $why = if ($SkipXray) { "-SkipXray was used; run .\tools\sdlc.ps1 without it" }
+                       elseif ($script:gateStatus.gates["Tests"] -ne "PASS") { "the build or tests failed, so no jar was scanned - fix them first" }
+                       else { "see the XrayScan gate" }
+                Add-GateError $gate "Xray scan did not run" "XrayScan: $($script:gateStatus.gates['XrayScan']); $why. vulnfix is proven only by a real scan"
+            }
+        } elseif ($vulnquick) {
+            # A quick vulnerability fix changes version numbers only: anything beyond the build files needs a vulnfix task
+            if ($script:gateStatus.gates["XrayScan"] -notin @("PASS", "FAIL")) {
+                $ok = $false
+                $why = if ($SkipXray) { "-SkipXray was used; run .\tools\sdlc.ps1 -SkipSonar without it" }
+                       elseif ($script:gateStatus.gates["Tests"] -ne "PASS") { "the build or tests failed, so no jar was scanned" }
+                       else { "see the XrayScan gate" }
+                Add-GateError $gate "Xray scan did not run" "XrayScan: $($script:gateStatus.gates['XrayScan']); $why. vulnquick is proven only by a real scan"
+            }
+            if ($null -ne $changed) {
+                $notBuild = @($changed.Keys | Where-Object { $_ -notmatch '(^|/)pom\.xml$' -and $_ -notmatch '^\.mvn/' } | Sort-Object)
+                if ($notBuild.Count -gt 0) {
+                    $ok = $false
+                    Add-GateError $gate "Files other than the build files changed in vulnquick" "$($notBuild -join ', '). Revert them; a fix that needs code or test changes is a vulnfix task"
+                }
+            } else {
+                $script:gateStatus.warnings += "VulnGuard: no git baseline - changes outside pom.xml not checked"
             }
         }
         Set-Gate $gate $ok
@@ -1115,6 +1167,7 @@ if ($Baseline) {
         testsPassed     = $script:gateStatus.metrics.tests.passed - [int]$base.tests.passed
         coverageLine    = if ($null -ne $script:gateStatus.metrics.coverage.line -and $null -ne $base.coverage.line) { [math]::Round([double]$script:gateStatus.metrics.coverage.line - [double]$base.coverage.line, 1) } else { $null }
         sonarOpenIssues = if ($null -ne $script:gateStatus.metrics.sonar.openIssues -and $null -ne $base.sonarOpenIssues) { [int]$script:gateStatus.metrics.sonar.openIssues - [int]$base.sonarOpenIssues } else { $null }
+        xrayFindings    = if ($null -ne $script:gateStatus.metrics.xray.findings -and $null -ne $base.xrayFindings) { [int]$script:gateStatus.metrics.xray.findings - @($base.xrayFindings).Count } else { $null }
     }
 } else {
     Write-Host "`n    No $baselineFile - Regression/TestIntegrity/DiffGuard skipped. Run .\tools\sdlc.ps1 -Baseline before changing code." -ForegroundColor DarkYellow
@@ -1122,6 +1175,7 @@ if ($Baseline) {
     foreach ($g in @("Regression", "TestIntegrity", "DiffGuard")) { $script:gateStatus.gates[$g] = "SKIPPED" }
     if ($settings.scenario -eq "tests") { $script:gateStatus.gates["TestMigration"] = "SKIPPED" }
     if ($settings.scenario -eq "migration") { $script:gateStatus.gates["MigrationGuard"] = "SKIPPED" }
+    if ($settings.scenario -in @("vulnfix", "vulnquick")) { $script:gateStatus.gates["VulnGuard"] = "SKIPPED" }
     if ($sonarClean) { $script:gateStatus.gates["TestCount"] = "SKIPPED" }
 }
 

@@ -8,6 +8,7 @@
 #   .\scripts\attach-project.ps1 -Project my-legacy-app
 #   .\scripts\attach-project.ps1 -Project my-legacy-app -NoBranch -SkipRecon
 #   .\scripts\attach-project.ps1 -Project my-legacy-app -Scenario migration -NewTask   (next task on an attached project)
+#   .\scripts\attach-project.ps1 -Project my-legacy-app -BaseBranch feature            (sdlc-work starts from origin/feature)
 # ==============================================================================
 Param(
     [Parameter(Mandatory = $true)][string]$Project,
@@ -16,6 +17,7 @@ Param(
     [string]$ScenarioConfig = "config/scenario-config.yaml",
     [string]$ProjectConfig = "config/project-config.yaml",
     [string]$Branch = "sdlc-work",
+    [string]$BaseBranch,
     [string]$MavenSettings = $env:MAVEN_SETTINGS,
     [switch]$NoBranch,
     [switch]$NoJacoco,
@@ -47,6 +49,7 @@ function Read-FlatYaml([string]$file) {
 $scenarioCfg = Read-FlatYaml (Join-Path $repoRoot $ScenarioConfig)
 $projectCfg = Read-FlatYaml (Join-Path $repoRoot $ProjectConfig)
 if (-not $Scenario) { $Scenario = $scenarioCfg["scenarioType"] }
+if (-not $BaseBranch) { $BaseBranch = $scenarioCfg["scenarioBaseBranch"] }
 
 $projectsDir = if ($ProjectsDir) { $ProjectsDir } elseif ($scenarioCfg["projectsDir"]) { $scenarioCfg["projectsDir"] } else { "projects" }
 $projectPath = Join-Path (Join-Path $repoRoot $projectsDir) $Project
@@ -99,13 +102,43 @@ try {
         Write-Host "    -NoBranch: staying on $(git rev-parse --abbrev-ref HEAD)" -ForegroundColor Gray
     } else {
         $current = git rev-parse --abbrev-ref HEAD
-        if ($current -eq $Branch) {
-            Write-Host "    Already on $Branch" -ForegroundColor Green
+        # -BaseBranch / scenarioBaseBranch: the working branch starts from that branch of origin (fetched first), not from the checked-out one
+        $baseRef = $null
+        if ($BaseBranch) {
+            git fetch -q origin $BaseBranch 2>$null
+            if ($LASTEXITCODE -ne 0) { Write-Host "    Warning: git fetch origin $BaseBranch failed - using the local state of the repository" -ForegroundColor DarkYellow }
+            foreach ($candidate in @("refs/remotes/origin/$BaseBranch", "refs/heads/$BaseBranch", $BaseBranch)) {
+                $null = git rev-parse --verify --quiet "$candidate^{commit}" 2>$null
+                if ($LASTEXITCODE -eq 0) { $baseRef = $candidate; break }
+            }
+            if (-not $baseRef) { Write-Error "Base branch '$BaseBranch' not found: no origin/$BaseBranch, no local branch, tag or commit of that name. Nothing changed." }
+        }
+        git show-ref --verify --quiet "refs/heads/$Branch"
+        $exists = ($LASTEXITCODE -eq 0)
+        $containsBase = $true
+        if ($baseRef -and $exists) {
+            $own = [int](git rev-list --count "$baseRef..refs/heads/$Branch")
+            git merge-base --is-ancestor $baseRef "refs/heads/$Branch"
+            $containsBase = ($LASTEXITCODE -eq 0)
+            # Never throw away work: an existing working branch with its own commits on another base stays as it is
+            if (-not $containsBase -and $own -gt 0) {
+                Write-Error "$Branch already exists with $own commit(s) that are not on $BaseBranch. Nothing changed. Keep it (no -BaseBranch / empty scenarioBaseBranch), rename it (git branch -m $Branch $Branch-old) or choose another name with -Branch."
+            }
+        }
+        # A missing branch, or one without own commits that does not contain the base yet, is (re)created at the base
+        $startAtBase = $baseRef -and (-not $exists -or -not $containsBase)
+        if ($current -eq $Branch -and -not $startAtBase) {
+            $note = if ($baseRef) { " (contains $BaseBranch)" } else { "" }
+            Write-Host "    Already on $Branch$note" -ForegroundColor Green
         } elseif (git status --porcelain) {
+            if ($baseRef) { Write-Error "Uncommitted changes present - cannot start $Branch from $BaseBranch (still on $current). Commit or stash them first." }
             Write-Host "    Uncommitted changes present - not switching branches (still on $current)" -ForegroundColor DarkYellow
+        } elseif ($startAtBase) {
+            git checkout -q --no-track -B $Branch $baseRef
+            if ($LASTEXITCODE -ne 0) { Write-Error "git checkout -B $Branch $baseRef failed" }
+            Write-Host "    Working branch: $Branch (from $BaseBranch, $(git rev-parse --short HEAD))" -ForegroundColor Green
         } else {
-            git show-ref --verify --quiet "refs/heads/$Branch"
-            if ($LASTEXITCODE -eq 0) { git checkout -q $Branch } else { git checkout -q -b $Branch }
+            if ($exists) { git checkout -q $Branch } else { git checkout -q -b $Branch }
             if ($LASTEXITCODE -ne 0) { Write-Error "git checkout $Branch failed" }
             Write-Host "    Working branch: $Branch (from $current)" -ForegroundColor Green
         }
@@ -143,6 +176,7 @@ Add-ProjectFile (Join-Path $templates "mcp.json") ".vscode\mcp.json"
 
 if ($projectCfg["enableXray"] -eq "true" -and $projectCfg["xrayUrl"]) {
     Add-ProjectFile (Join-Path $templates "jfrog-scan.ps1") "tools\jfrog-scan.ps1" -Overwrite:$NewTask
+    Add-ProjectFile (Join-Path $templates "xray-candidates.ps1") "tools\xray-candidates.ps1" -Overwrite:$NewTask
     $xrayProps = Join-Path $projectPath "jfrog-xray.properties"
     if (-not (Test-Path $xrayProps)) {
         $content = "url=$($projectCfg['xrayUrl'])`nwatches=$($projectCfg['xrayWatches'])`ninsecureTls=$($projectCfg['xrayInsecureTls'])`n"
@@ -214,8 +248,9 @@ foreach ($prop in @("java.version", "maven.compiler.release", "maven.compiler.so
     if ($node -and $node.InnerText.Trim()) { $javaDeclared = $node.InnerText.Trim(); break }
 }
 $javaMajor = Get-JavaMajor $javaDeclared
-# A migration builds on the target JDK; a newer JDK also compiles the old release level
-if ($Scenario -eq "migration" -and $scenarioCfg["migrationJavaVersion"]) {
+# A migration (and a vulnfix, which moves to the same targets) builds on the target JDK; a newer JDK also compiles the old release level
+$javaTarget = ($Scenario -in @("migration", "vulnfix") -and $scenarioCfg["migrationJavaVersion"])
+if ($javaTarget) {
     $javaMajor = Get-JavaMajor $scenarioCfg["migrationJavaVersion"]
 }
 $jdksDir = $projectCfg["jdksDir"]
@@ -234,7 +269,7 @@ if (-not $javaMajor) {
         }
     }
     if ($javaHome) {
-        Write-Host "    Java $javaMajor ($(if ($Scenario -eq 'migration' -and $scenarioCfg['migrationJavaVersion']) { 'migration target' } else { 'from pom.xml' })): $javaHome" -ForegroundColor Green
+        Write-Host "    Java $javaMajor ($(if ($javaTarget) { 'target: migrationJavaVersion' } else { 'from pom.xml' })): $javaHome" -ForegroundColor Green
     } else {
         Write-Host "    No JDK $javaMajor in $jdksDir - tools use java from PATH" -ForegroundColor DarkYellow
     }
@@ -354,6 +389,7 @@ function Get-CfgNumber([string]$key, $default) {
 # Read by tools/sdlc.ps1 and the orchestrator; the project cannot see config/ of this repository
 $sdlcSettings = [ordered]@{
     scenario              = $Scenario
+    baseBranch            = $(if ($BaseBranch) { $BaseBranch } else { "" })
     mavenSettings         = $(if ($MavenSettings) { (Resolve-Path $MavenSettings).Path } else { "" })
     javaHome              = $javaHome
     mavenHome             = $mavenHome
@@ -362,12 +398,12 @@ $sdlcSettings = [ordered]@{
     diffGuardMaxLines     = Get-CfgNumber "diffGuardMaxLines" 400
     diffGuardMode         = $(if ($scenarioCfg["diffGuardMode"]) { $scenarioCfg["diffGuardMode"] } else { "warn" })
     coverageTolerance     = Get-CfgNumber "coverageTolerance" 0.0
-    sonarMaxOpenIssues    = $(if ($Scenario -in @("sonarfix", "remediation")) { 0 } else { -1 })
+    sonarMaxOpenIssues    = $(if ($Scenario -in @("sonarfix", "remediation", "vulnfix")) { 0 } else { -1 })
     maxFixIterations      = Get-CfgNumber "maxFixIterations" 5
     maxOfficialCiAttempts = Get-CfgNumber "maxOfficialCiAttempts" 2
     sameGateStopAfter     = Get-CfgNumber "sameGateStopAfter" 3
 }
-if ($Scenario -eq "migration") {
+if ($Scenario -in @("migration", "vulnfix")) {
     $sdlcSettings.migrationBootVersion = $scenarioCfg["migrationBootVersion"]
     $sdlcSettings.migrationJavaVersion = $scenarioCfg["migrationJavaVersion"]
 }
