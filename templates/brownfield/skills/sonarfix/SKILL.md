@@ -50,3 +50,17 @@ Add `security-reviewer` after the fix only when the change touches input handlin
 - files changed (from `metrics.diff.changed` in the report)
 - the final gate table, tests and coverage with `delta` against the baseline
 - `warnings` from the report (DiffGuard, pom.xml changes) and anything skipped
+
+# Rules for delegates
+
+The orchestrator gives each delegate this file; each one follows only its own section.
+
+## For `analyst`
+
+Write in `analysis.md` (in addition to sections 1-6):
+
+**Scenario `sonarfix` only** - open issues from `sdlc-report.json` (`SonarQube-Issues` errors) grouped by rule: count, severity/type, files, and for each rule the planned fix and its risk. Mark every group whose fix can change behaviour: names that reach external systems by reflection or serialization (check how the library maps them - annotation name or Java field name; Lombok builder/getter names change with the field name), time zones and clocks, null handling, public API signatures, request mappings, test restructuring (merge/split). Those groups go to the list of decisions for the user. Real false positives are listed separately with the reason.
+
+## For `planner`
+
+- no new features or tests - plan batches, one rule (or a few small rules) per batch, ordered from mechanical fixes (unused imports, final fields) to risky ones (renames, test restructuring). Each batch lists the issue count, the files and the user decision that applies; every open issue from `analysis.md` is in exactly one batch.

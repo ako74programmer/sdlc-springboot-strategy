@@ -152,7 +152,7 @@ if ($NewTask) {
     # The orchestrator must start from a clean slate: its own baseline, analysis and plan
     $history = Join-Path $projectPath ("sdlc-history\" + (Get-Date -Format "yyyyMMdd-HHmmss"))
     $taskFiles = @("task.md", "analysis.md", "plan.md", "security-review.md", "recon-report.json", "sdlc-baseline.json",
-        "sdlc-report.json", "sdlc-repro.json", "sdlc-cost.json", "sdlc-run.log")
+        "sdlc-report.json", "sdlc-repro.json", "sdlc-cost.json", "sdlc-run.log", "sdlc-tmp")
     $moved = @($taskFiles | Where-Object { Test-Path (Join-Path $projectPath $_) })
     if ($moved.Count -gt 0) {
         New-Item -ItemType Directory -Path $history -Force | Out-Null
@@ -463,7 +463,7 @@ if ($isGit) {
         New-Item -ItemType Directory -Path (Split-Path $excludeFile -Parent) -Force | Out-Null
         $existing = @(if (Test-Path $excludeFile) { Get-Content $excludeFile })
         $wanted = @($added) + @("sdlc-attach.json", "sdlc-settings.json", "sdlc-report.json", "sdlc-baseline.json", "sdlc-repro.json", "sdlc-cost.json",
-            "recon-report.json", "sdlc-run.log", "task.md", "analysis.md", "plan.md", "security-review.md", "*.token", "sonar-token.txt", "sdlc-history/", "secrets.local.env")
+            "recon-report.json", "sdlc-run.log", "task.md", "analysis.md", "plan.md", "security-review.md", "*.token", "sonar-token.txt", "sdlc-history/", "sdlc-tmp/", "secrets.local.env")
         $missing = @($wanted | Select-Object -Unique | ForEach-Object { "/" + $_.TrimStart('/') } |
             Where-Object { $existing -notcontains $_ })
         if ($missing.Count -gt 0) {

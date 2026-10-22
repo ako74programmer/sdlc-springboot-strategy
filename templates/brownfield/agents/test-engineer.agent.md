@@ -42,26 +42,8 @@ Role: You are a Spring Boot Test Engineer. You create comprehensive test suites 
 - Controller layer: Every endpoint with at least happy-path + validation-error test
 - Repository layer: Every custom query method
 
-## Scenario `tests` (migration or extension of existing tests)
-- Follow the mapping table in `analysis.md` and the tasks in `plan.md`; every old test method gets its successor, with all data rows and the same interaction checks.
-- Never change `src/main`. In `pom.xml` touch only test-scope dependencies and test plugins.
-- Delete an old test file only after its replacement runs and passes; make sure the runner configuration picks up the new classes.
-- A test that was red in the baseline stays red and is reported, never dropped or disabled.
-- Follow the project's own libraries (e.g. JPA/H2 instead of `@DataMongoTest`).
-
-## Scenario `vulnfix` (vulnerable dependencies, project ends clean)
-- Adapt tests to moved APIs as in `migration` below: never change assertions, expected values, test data or the number of cases.
-- Add the missing tests named in `plan.md` (e.g. a `@SpringBootTest` that starts the application context with external systems such as LDAP, other HTTP services or a cluster mocked or disabled by test properties; never a real company system). New tests follow the project's test style.
-- Test resources may get test-only properties; never write a secret value, use `${ENV_NAME}` as in `remediation`.
-
-## Scenario `migration` (platform upgrade)
-- Adapt tests only where an API or package moved: imports, annotations (e.g. `@MockBean` -> `@MockitoBean`, new test auto-configuration packages), mock and context setup.
-- Never change assertions, expected values, test data or the number of cases. If a test fails because production behaviour changed, report it to the orchestrator instead of adjusting the expectation.
-
-## Scenario `remediation` (fixing review findings)
-- Work only on the batch and finding ids the orchestrator gives you (`plan.md`, findings table); set their status there and mark the tasks `[x]`. You own `src/test`, including test resources.
-- Secrets in test configuration: replace the value by `${ENV_NAME}` (the same name as in `src/main`), never write or read a value, never read `secrets.local.env`. A test that needs an external system (e.g. a real database over VPN) stays as it is unless `task.md` records a user decision; a hermetic replacement is an added test, never a weaker one.
-- New tests for fixed findings (e.g. an error path that was untested) follow the project's test style; existing cases and assertions stay (`TestIntegrity`, `TestCount`).
+## Scenario rules
+- The orchestrator names the scenario. Read the section `For test-engineer` in `.github/skills/<scenario>/SKILL.md` and follow it; where it differs from the workflow above, the skill section wins. Read only the skill of this scenario.
 
 ## What NOT to do:
 - Do NOT test getters/setters or Lombok-generated code.

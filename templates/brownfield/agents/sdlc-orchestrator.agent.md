@@ -57,7 +57,7 @@ The skill's Definition of Done decides. Before reporting success run `.\tools\sd
 
 ## Delegation rules
 
-- Subagents do not see this conversation. Give each one: the scenario, the paths of `task.md` / `analysis.md` (in `remediation`: `plan.md` and the review report in `reviewSource`), and the exact failure text.
+- Subagents do not see this conversation. Give each one: the scenario, the path of its skill (`.github/skills/<scenario>/SKILL.md`, section `For <agent>`), the paths of `task.md` / `analysis.md` (in `remediation`: `plan.md` and the review report in `reviewSource`), and the exact failure text.
 - One concern per delegation. Never run two delegations that may edit the same files at the same time, and wait for a running delegate before changing anything it may touch.
 - Tell each delegate to mark its finished tasks `[x]` in `plan.md` (when the scenario has one).
 - A STOP condition in `plan.md` (e.g. a red JPA test after a persistence upgrade) means: stop and ask the user first. Diagnose only as far as needed to ask a precise question - no experiments with other versions or configurations before the answer.

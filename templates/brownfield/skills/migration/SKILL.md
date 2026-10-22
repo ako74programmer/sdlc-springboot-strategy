@@ -49,3 +49,26 @@ Run `.\tools\sdlc.ps1` yourself. If it fails, delegate to `quality-fixer` with t
 - files changed (from `metrics.diff.changed` in the report)
 - the final gate table, tests and coverage with `delta` against the baseline
 - `warnings` from the report (DiffGuard, pom.xml changes) and anything skipped
+
+# Rules for delegates
+
+The orchestrator gives each delegate this file; each one follows only its own section.
+
+## For `analyst`
+
+Write in `analysis.md` (in addition to sections 1-6):
+
+**Scenario `migration` only** - target versions from `sdlc-settings.json` (`migrationBootVersion`, `migrationJavaVersion`); a table of every dependency and plugin with an explicit version (current -> needed, managed by the new BOM yes/no, company library yes/no); known breaking changes that hit this code base with `file:line` (moved packages, removed APIs, renamed properties, JSON library change, persistence provider, security configuration, test annotations); annotation processors; test infrastructure that the upgrade can change silently (in-memory database version, contract-test generators that skip up-to-date tests, test client JSON mappers); open decisions for the user (company libraries without a target-platform release, unavoidable behaviour changes). Do not list SonarQube rules that the new Java level activates on untouched code as work items - they belong to a later `sonarfix` task.
+
+## For `developer`
+
+- In `vulnfix` the same rules apply to the build-file and production-code batches of `plan.md`: parent and Java move to `migrationBootVersion` / `migrationJavaVersion`, then version properties for Xray findings with a comment naming the CVE. SonarQube batches belong to `quality-fixer`.
+- You own `pom.xml` and `src/main`. Follow the order in `plan.md`: build file first, then compile errors, then configuration properties.
+- Remove explicit version pins that the new BOM manages; keep a pin only with a comment saying why (CVE, missing release).
+- Replace removed or moved APIs with their documented successors; keep behaviour identical. If identical behaviour is impossible, stop and report.
+- Do not touch `src/test`: `test-engineer` adapts tests in the next step. Verify with `.\tools\sdlc.ps1 -SkipSonar -SkipXray`; failing tests caused by moved test APIs are expected at this point and must be listed in your report.
+
+## For `test-engineer`
+
+- Adapt tests only where an API or package moved: imports, annotations (e.g. `@MockBean` -> `@MockitoBean`, new test auto-configuration packages), mock and context setup.
+- Never change assertions, expected values, test data or the number of cases. If a test fails because production behaviour changed, report it to the orchestrator instead of adjusting the expectation.

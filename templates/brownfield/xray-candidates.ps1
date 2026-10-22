@@ -6,9 +6,9 @@
 # version in the company repository - two versions-maven-plugin runs in parallel on a temporary pom (about half a minute).
 # target = always the newest version in the company repository (also when it does not fix every finding - the note
 # says so), plus rows for the parent of pom.xml and for every version pom.xml declares (dependency versions and
-# overrides of the parent's version properties). Result: table + target\sdlc-tmp\xray-candidates.json.
+# overrides of the parent's version properties). Result: table + sdlc-tmp\xray-candidates.json.
 # Also checks pom.xml consistency (one Java level, one version source per library family, Lombok, add-ons the main
-# library contains): target\sdlc-tmp\pom-consistency.json. Changes nothing in the project.
+# library contains): sdlc-tmp\pom-consistency.json. Changes nothing in the project.
 # ==============================================================================
 Param(
     [string]$Findings = "target\xray-findings.json"
@@ -88,7 +88,7 @@ if ($projectPom) {
     }
 }
 if ($groups.Count -eq 0 -and -not $parent -and $declared.Count -eq 0) { Write-Host "No Xray findings in $Findings" -ForegroundColor Green; return }
-$tmp = "target\sdlc-tmp\xray-candidates"
+$tmp = "sdlc-tmp\xray-candidates"
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 
 # --- Newest versions in the company repository: two runs in parallel ----------
@@ -254,9 +254,9 @@ if ($parent) {
     }
 }
 
-$rows | ConvertTo-Json -Depth 4 | Set-Content "target\sdlc-tmp\xray-candidates.json" -Encoding UTF8
+$rows | ConvertTo-Json -Depth 4 | Set-Content "sdlc-tmp\xray-candidates.json" -Encoding UTF8
 $rows | Format-Table component, version, findings, location, required, newest, target, note -Wrap | Out-String -Width 250 | Write-Host
-Write-Host "Saved: target\sdlc-tmp\xray-candidates.json (Maven output: $tmp\patch.log, latest.log)" -ForegroundColor Gray
+Write-Host "Saved: sdlc-tmp\xray-candidates.json (Maven output: $tmp\patch.log, latest.log)" -ForegroundColor Gray
 
 # --- Consistency of pom.xml: what a reviewer checks by hand ------------------
 # One mechanism per version: the property the parent manages a library with, the BOM a library family comes from,
@@ -295,9 +295,9 @@ if ($projectPom) {
         $want = @("maven.compiler.release", "maven.compiler.source", "maven.compiler.target") | Where-Object { $props.ContainsKey($_) } | ForEach-Object { $props[$_] } | Select-Object -First 1
         $pomText = Get-Content "pom.xml" -Raw
         if ($want -and ($parentProps.ContainsKey("java.version") -or $pomText -match '\$\{java\.version\}')) {
-            $issues.Add([pscustomobject]@{ check = "java"; where = "properties maven.compiler.*, maven-compiler-plugin"
+            $issues.Add([pscustomobject]@{ check = "java"; action = "change"; where = "properties maven.compiler.*, maven-compiler-plugin"
                 problem = "pom.xml says Java $want, but the build compiles with java.version = $($parentProps['java.version']) from the parent"
-                fix = "add <java.version>$want</java.version> and remove maven.compiler.source/target/release from properties" })
+                fix = "add <java.version>$want</java.version> (the parent's maven.compiler.release then uses it); leave maven.compiler.* in place - removing them is a proposal for the user" })
         }
     }
     # Own versions on libraries the parent manages with a property or through a BOM of their family
@@ -319,21 +319,21 @@ if ($projectPom) {
         $via = if ($family) { "the family BOM $($family.ga)" } else { "the parent" }
         $fix = if ($o.kind -eq "annotationProcessorPaths") { "use `${$want} as its version (set <$want> to the newest version)" }
                else { "remove its own <version> and set <$want> in properties to the newest version" }
-        $issues.Add([pscustomobject]@{ check = "version source"; where = "$($o.kind) $ga ($raw)"
+        $issues.Add([pscustomobject]@{ check = "version source"; action = "change"; where = "$($o.kind) $ga ($raw)"
             problem = "$via manages it with <$want>; its own version can drift from the rest of the family"; fix = $fix })
     }
     # Add-ons that the main library contains since a version (duplicate classes on the classpath)
     $hz = @($declared | Where-Object { $_.ga -eq "com.hazelcast:hazelcast" }) | Select-Object -First 1
     if ($hz -and ($declared | Where-Object { $_.ga -eq "com.hazelcast:hazelcast-kubernetes" }) -and $hz.version -match '^(\d+)' -and [int]$Matches[1] -ge 5) {
-        $issues.Add([pscustomobject]@{ check = "duplicate"; where = "dependency com.hazelcast:hazelcast-kubernetes"
-            problem = "hazelcast $($hz.version) contains the Kubernetes discovery; the separate plugin duplicates its classes"; fix = "remove the dependency (the build and tests prove it)" })
+        $issues.Add([pscustomobject]@{ check = "duplicate"; action = "proposal"; where = "dependency com.hazelcast:hazelcast-kubernetes"
+            problem = "hazelcast $($hz.version) contains the Kubernetes discovery; the separate plugin duplicates its classes"; fix = "proposal for the user: remove the dependency after checking cluster discovery on the target environment - never removed in this task" })
     }
 }
-$issues | ConvertTo-Json -Depth 3 | Set-Content "target\sdlc-tmp\pom-consistency.json" -Encoding UTF8
+$issues | ConvertTo-Json -Depth 3 | Set-Content "sdlc-tmp\pom-consistency.json" -Encoding UTF8
 if ($issues.Count -gt 0) {
-    Write-Host "pom.xml consistency - $($issues.Count) issue(s), fix them in the same change:" -ForegroundColor Yellow
-    $issues | Format-Table check, where, problem, fix -Wrap | Out-String -Width 250 | Write-Host
+    Write-Host "pom.xml consistency - $($issues.Count) issue(s); action 'change' is fixed in this task, action 'proposal' only goes to the report for the user:" -ForegroundColor Yellow
+    $issues | Format-Table check, action, where, problem, fix -Wrap | Out-String -Width 250 | Write-Host
 } else {
     Write-Host "pom.xml consistency: no issues" -ForegroundColor Green
 }
-Write-Host "Saved: target\sdlc-tmp\pom-consistency.json" -ForegroundColor Gray
+Write-Host "Saved: sdlc-tmp\pom-consistency.json" -ForegroundColor Gray

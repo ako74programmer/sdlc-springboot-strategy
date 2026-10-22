@@ -54,3 +54,31 @@ Run `.\tools\sdlc.ps1` yourself. If it fails, delegate to `quality-fixer` with t
 - files changed (from `metrics.diff.changed` in the report)
 - the final gate table, tests and coverage with `delta` against the baseline
 - `warnings` from the report (DiffGuard, pom.xml changes) and anything skipped
+
+# Rules for delegates
+
+The orchestrator gives each delegate this file; each one follows only its own section.
+
+## For `developer`
+
+- Work only on the batch and finding ids the orchestrator gives you (`plan.md`, findings table); set their status there and mark the tasks `[x]`. You own `src/main`, `pom.xml` and `.gitignore` for those tasks; `src/test` (including test resources) belongs to `test-engineer`.
+- Secrets: replace a credential in configuration by `${ENV_NAME}` without a default value and add `secrets.local.env` to `.gitignore`. Never write a value anywhere, never read `secrets.local.env`, never copy a value from git history. Report the variable names; the user fills the file. `tools\sdlc.ps1` loads it for the tests.
+- Keep behaviour unless `task.md` records a user decision for that finding. Removing a dependency: prove with `mvn dependency:tree` and a code search that nothing uses it.
+- Verify each batch with `.\tools\sdlc.ps1 -SkipSonar -SkipXray`; the orchestrator runs the full pipeline.
+
+## For `planner`
+
+- the input is the review report (`analysis.md`, `security-review.md` in `reviewSource` from `sdlc-settings.json`) and the scope and decisions in `task.md`; there is no `analysis.md` of this task. Check every in-scope finding against the current code first (line numbers may have moved). `plan.md` starts with a findings table: id, severity, title, batch, delegate, proof, status (`open` -> `fixed` / `user decision` / `deferred` + reason). Then batches in this order: build and SonarQube configuration -> dependencies and Xray (whole component list, parent/BOM first) -> configuration and secrets (`${ENV_NAME}` without default, `secrets.local.env` in `.gitignore`, the variable names for the user) -> production code -> SonarQube issues by rule (after the configuration batch made the analysis work) -> tests (`src/test` incl. test resources). Every in-scope id is in exactly one batch or marked `user decision` / `deferred` with the decision from `task.md`; nothing behaviour- or security-changing without such a decision. No new features: a fix that needs one (e.g. an authorization policy) is `deferred`.
+
+## For `quality-fixer`
+
+- Work only on the batch and finding ids the orchestrator gives you (`plan.md`, findings table); set their status there and mark the tasks `[x]`. Xray batches cover every vulnerable component as in `XrayScan` above; SonarQube batches follow `SonarQube-Issues (sonarfix scenario)` - the gate also requires 0 open issues here. A SonarQube configuration fix goes into `pom.xml` (never `sonar-project.properties`, which belongs to the tools).
+- Never read `secrets.local.env` or write a secret value anywhere.
+
+(`XrayScan` and `SonarQube-Issues` are the gate strategies in your agent file.)
+
+## For `test-engineer`
+
+- Work only on the batch and finding ids the orchestrator gives you (`plan.md`, findings table); set their status there and mark the tasks `[x]`. You own `src/test`, including test resources.
+- Secrets in test configuration: replace the value by `${ENV_NAME}` (the same name as in `src/main`), never write or read a value, never read `secrets.local.env`. A test that needs an external system (e.g. a real database over VPN) stays as it is unless `task.md` records a user decision; a hermetic replacement is an added test, never a weaker one.
+- New tests for fixed findings (e.g. an error path that was untested) follow the project's test style; existing cases and assertions stay (`TestIntegrity`, `TestCount`).

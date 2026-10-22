@@ -44,3 +44,21 @@ Run `.\tools\sdlc.ps1` yourself. If it fails, delegate to `quality-fixer` with t
 - files changed (from `metrics.diff.changed` in the report)
 - the final gate table, tests and coverage with `delta` against the baseline
 - `warnings` from the report (DiffGuard, pom.xml changes) and anything skipped
+
+# Rules for delegates
+
+The orchestrator gives each delegate this file; each one follows only its own section.
+
+## For `analyst`
+
+Write in `analysis.md` (in addition to sections 1-6):
+
+**Scenario `tests` only** - inventory of test sources (all languages, e.g. `.groovy`), runner configuration (surefire `includes`, test compilers, contract generators) and a mapping table: old class#method (data rows count for parameterised tests) -> new class#method. Test count and coverage from `sdlc-baseline.json`.
+
+## For `test-engineer`
+
+- Follow the mapping table in `analysis.md` and the tasks in `plan.md`; every old test method gets its successor, with all data rows and the same interaction checks.
+- Never change `src/main`. In `pom.xml` touch only test-scope dependencies and test plugins.
+- Delete an old test file only after its replacement runs and passes; make sure the runner configuration picks up the new classes.
+- A test that was red in the baseline stays red and is reported, never dropped or disabled.
+- Follow the project's own libraries (e.g. JPA/H2 instead of `@DataMongoTest`).
