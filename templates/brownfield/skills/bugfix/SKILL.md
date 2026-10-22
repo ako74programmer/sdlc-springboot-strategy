@@ -24,7 +24,7 @@ Signals: a bug description, a stack trace or a named failing test.
 
 ## Verify
 
-Run `.\tools\sdlc.ps1 -ReproTest <id>` yourself, using the id from `analysis.md`. If it fails, delegate to `quality-fixer` with the failing gate and its `errors[]`, then verify again. When the task changed `pom.xml`, `.mvn/` or other build configuration, the final verify is `.\tools\sdlc.ps1 -CiParity`: like CI it starts from an empty local Maven repository (slow), because some plugin conflicts appear only while downloading.
+Run `.\tools\sdlc.ps1 -ReproTest <id>` yourself, using the id from `analysis.md` (once recorded in `sdlc-repro.json`, subsequent `.\tools\sdlc.ps1` runs check it automatically). If it fails, delegate to `quality-fixer` with the failing gate and its `errors[]`, then verify again. When the task changed `pom.xml`, `.mvn/` or other build configuration, the final verify is `.\tools\sdlc.ps1 -CiParity` (or `.\tools\sdlc.ps1 -CiParity -Fast` if running out of time).
 
 Add `security-reviewer` after the fix only when the change touches input handling, queries, authentication or logging.
 

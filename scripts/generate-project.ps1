@@ -261,6 +261,14 @@ if (Test-Path $sdlcScriptSource) {
 }
 Copy-Item "templates/shared/copilot-quota.ps1" -Destination (Join-Path $toolsDir "copilot-quota.ps1") -Force
 Write-Host "    Copied tools/copilot-quota.ps1" -ForegroundColor Green
+if (Test-Path "templates/brownfield/load-secrets.ps1") {
+    Copy-Item "templates/brownfield/load-secrets.ps1" -Destination (Join-Path $toolsDir "load-secrets.ps1") -Force
+    Write-Host "    Copied tools/load-secrets.ps1" -ForegroundColor Green
+}
+if (Test-Path "templates/brownfield/run-local.ps1") {
+    Copy-Item "templates/brownfield/run-local.ps1" -Destination (Join-Path $toolsDir "run-local.ps1") -Force
+    Write-Host "    Copied tools/run-local.ps1" -ForegroundColor Green
+}
 
 # JFrog Xray gate: tools/jfrog-scan.ps1 + jfrog-xray.properties (its presence enables the gate)
 if ($enableXray -eq "true") {
@@ -282,7 +290,7 @@ if ($enableXray -eq "true") {
 $gitignore = Join-Path $targetPath ".gitignore"
 if (Test-Path $gitignore) {
     $ignored = Get-Content $gitignore
-    $missing = @("sonar-token.txt", "*.token", ".env") | Where-Object { $ignored -notcontains $_ }
+    $missing = @("sonar-token.txt", "*.token", ".env", "secrets.local.env") | Where-Object { $ignored -notcontains $_ }
     if ($missing) {
         Add-Content -Path $gitignore -Value ((@("") + $missing) -join "`n")
         Write-Host "    .gitignore: added $($missing -join ', ')" -ForegroundColor Green
@@ -382,6 +390,8 @@ Write-Host "    Created tools/enable-hooks.ps1 (run once to activate)" -Foregrou
 # Every project is versioned: main = generated starting point, sdlc-work = where the agents change code
 Push-Location $targetPath
 try {
+    $previousEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     git init -q -b main
     if ($LASTEXITCODE -ne 0) { Write-Error "git init failed in $targetPath" }
     $localFiles = @(".sdlc-generated", "sdlc-report.json", "sdlc-run.log", "sdlc-cost.json", "plan.md", "security-review.md", "task.md")
@@ -399,6 +409,7 @@ try {
     } else {
         Write-Host "    WARNING: initial commit failed (git user.name / user.email not set?). Run in $targetPath`: git commit -m 'Initial project'; git checkout -b sdlc-work" -ForegroundColor DarkYellow
     }
+    $ErrorActionPreference = $previousEap
 } finally {
     Pop-Location
 }

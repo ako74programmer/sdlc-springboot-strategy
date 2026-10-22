@@ -82,9 +82,12 @@ try {
 Write-Host "[4/4] Initial commit..." -ForegroundColor Yellow
 Push-Location $target
 try {
+    $previousEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     git init -q
     git add -A 2>$null
     git -c user.name="fixture" -c user.email="fixture@local" commit -q -m "Initial import ($Name)"
+    $ErrorActionPreference = $previousEap
 } finally {
     Pop-Location
 }

@@ -105,13 +105,25 @@ try {
         # -BaseBranch / scenarioBaseBranch: the working branch starts from that branch of origin (fetched first), not from the checked-out one
         $baseRef = $null
         if ($BaseBranch) {
-            git fetch -q origin $BaseBranch 2>$null
-            if ($LASTEXITCODE -ne 0) { Write-Host "    Warning: git fetch origin $BaseBranch failed - using the local state of the repository" -ForegroundColor DarkYellow }
+            $hasOrigin = [bool](git remote 2>$null | Where-Object { $_ -eq "origin" })
+            if ($hasOrigin) {
+                $previousEap = $ErrorActionPreference
+                $ErrorActionPreference = "Continue"
+                git fetch -q origin $BaseBranch 2>$null
+                $ErrorActionPreference = $previousEap
+                if ($LASTEXITCODE -ne 0) { Write-Host "    Warning: git fetch origin $BaseBranch failed - using the local state of the repository" -ForegroundColor DarkYellow }
+            }
             foreach ($candidate in @("refs/remotes/origin/$BaseBranch", "refs/heads/$BaseBranch", $BaseBranch)) {
                 $null = git rev-parse --verify --quiet "$candidate^{commit}" 2>$null
                 if ($LASTEXITCODE -eq 0) { $baseRef = $candidate; break }
             }
-            if (-not $baseRef) { Write-Error "Base branch '$BaseBranch' not found: no origin/$BaseBranch, no local branch, tag or commit of that name. Nothing changed." }
+            if (-not $baseRef) {
+                if ($PSBoundParameters.ContainsKey("BaseBranch")) {
+                    Write-Error "Base branch '$BaseBranch' not found: no origin/$BaseBranch, no local branch, tag or commit of that name. Nothing changed."
+                } else {
+                    Write-Host "    Warning: Base branch '$BaseBranch' (from config) not found in this repository - staying on $current" -ForegroundColor DarkYellow
+                }
+            }
         }
         git show-ref --verify --quiet "refs/heads/$Branch"
         $exists = ($LASTEXITCODE -eq 0)

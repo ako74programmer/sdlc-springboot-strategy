@@ -37,8 +37,9 @@ Every task is exactly one scenario. Its rules - definition of done, start checks
    | `migration` | move the project to a new platform version: Spring Boot / Spring Framework major, Java version; production code changes only as far as the new versions require |
    | `review` | review only, nothing is changed: a code review of a change (a merge request, a branch against its base) or a code and security review of the whole project; the result is a report |
    | `remediation` | fix what the last review found: the task refers to the review report or its finding ids (`F01`, `SEC-02`) |
+   | `refactor` | clean up legacy code, god classes, duplication or technical debt; zero behavior or API contract change |
 
-   If the message fits several types or none, ask the user once. `sdlc-settings.json` `scenario` is a hint, the task text decides. Other types (refactor) are not supported by this workflow yet - say so and stop.
+   If the message fits several types or none, ask the user once. `sdlc-settings.json` `scenario` is a hint, the task text decides.
 2. **Skill** - read `.github/skills/<scenario>/SKILL.md` and do its `Start` checks (settings, environment, baseline flags).
 3. **Limits** - read `sdlc-settings.json`: `maxFixIterations`, `sameGateStopAfter`, `maxOfficialCiAttempts`. They override any number in this file; a skill may set a lower number for its scenario.
 4. **Environment** - start what the skill needs before any gate (`..\..\scripts\env-up.ps1`).

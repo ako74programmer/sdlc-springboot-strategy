@@ -17,6 +17,7 @@ Param(
     [switch]$Baseline,
     [switch]$CheckReport,
     [switch]$CiParity,
+    [switch]$Fast,
     [string]$ReproTest,
     [string]$MavenSettings = $env:MAVEN_SETTINGS,
     [string]$SonarPluginVersion = "5.8.0.7211"
@@ -33,6 +34,7 @@ $mvn = if (Test-Path "mvnw.cmd") { ".\mvnw.cmd" } else { "mvn" }
 $settings = @{
     scenario           = ""
     mavenSettings      = ""
+    fastMode           = $false
     diffGuardMaxFiles  = 15
     diffGuardMaxLines  = 400
     diffGuardMode      = "warn"
@@ -165,11 +167,16 @@ function Hide-Secrets([string]$text) {
 # -CiParity: CI builds start from an empty local repository; plugin and transport conflicts show up only while downloading
 $ciRepo = $null
 if ($CiParity) {
-    $ciRepo = Join-Path ([IO.Path]::GetTempPath()) "sdlc-ci-repo-$PID"
-    New-Item -ItemType Directory -Path $ciRepo -Force | Out-Null
-    $mvnSettingsArgs += "-Dmaven.repo.local=$ciRepo"
-    $gateStatus.ciParity = $true
-    Write-Host "CI parity: empty local Maven repository $ciRepo" -ForegroundColor Gray
+    if ($Fast -or $settings.fastMode) {
+        $gateStatus.warnings += "Fast mode active: CiParity (clean local Maven repository) was skipped to save time"
+        Write-Host "CI parity: skipped (-Fast active, using local ~/.m2 cache)" -ForegroundColor Yellow
+    } else {
+        $ciRepo = Join-Path ([IO.Path]::GetTempPath()) "sdlc-ci-repo-$PID"
+        New-Item -ItemType Directory -Path $ciRepo -Force | Out-Null
+        $mvnSettingsArgs += "-Dmaven.repo.local=$ciRepo"
+        $gateStatus.ciParity = $true
+        Write-Host "CI parity: empty local Maven repository $ciRepo" -ForegroundColor Gray
+    }
 }
 function Remove-CiRepo {
     if ($script:ciRepo) { Remove-Item $script:ciRepo -Recurse -Force -ErrorAction SilentlyContinue }
@@ -299,37 +306,51 @@ function Parse-TestResults {
     Write-Host "    Tests: $totalTests total ($integrationTests from failsafe), $($totalTests - $totalFailed - $totalErrors - $totalSkipped) passed, $totalFailed failed, $totalErrors errors, $totalSkipped skipped" -ForegroundColor Gray
 }
 
-# Helper: Parse JaCoCo coverage report
+# Helper: Parse JaCoCo coverage report (single and multi-module)
 function Parse-Coverage {
-    $jacocoFile = "target/site/jacoco/jacoco.xml"
-    if (-not (Test-Path $jacocoFile)) { return }
+    $jacocoFiles = @(Get-ChildItem -Path . -Recurse -File -Filter "jacoco.xml" -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match '[\\/]target[\\/]site[\\/]jacoco[\\/]jacoco\.xml$' })
+    if ($jacocoFiles.Count -eq 0) { return }
     
-    try {
-        [xml]$xml = Get-Content $jacocoFile
-        foreach ($counter in $xml.report.counter) {
-            if ($counter.type -eq "LINE") {
-                $missed  = [int]$counter.missed
-                $covered = [int]$counter.covered
-                $total   = $missed + $covered
-                if ($total -gt 0) {
-                    $pct = [math]::Round(($covered / $total) * 100, 1)
-                    $script:gateStatus.metrics.coverage.line = $pct
-                    Write-Host "    Line Coverage: $pct%" -ForegroundColor Gray
+    $totalLinesMissed = 0; $totalLinesCovered = 0
+    $totalBranchesMissed = 0; $totalBranchesCovered = 0
+    $hasLine = $false; $hasBranch = $false
+
+    foreach ($jFile in $jacocoFiles) {
+        try {
+            [xml]$xml = Get-Content $jFile.FullName
+            foreach ($counter in $xml.report.counter) {
+                if ($counter.type -eq "LINE") {
+                    $totalLinesMissed  += [int]$counter.missed
+                    $totalLinesCovered += [int]$counter.covered
+                    $hasLine = $true
+                }
+                if ($counter.type -eq "BRANCH") {
+                    $totalBranchesMissed  += [int]$counter.missed
+                    $totalBranchesCovered += [int]$counter.covered
+                    $hasBranch = $true
                 }
             }
-            if ($counter.type -eq "BRANCH") {
-                $missed  = [int]$counter.missed
-                $covered = [int]$counter.covered
-                $total   = $missed + $covered
-                if ($total -gt 0) {
-                    $pct = [math]::Round(($covered / $total) * 100, 1)
-                    $script:gateStatus.metrics.coverage.branch = $pct
-                    Write-Host "    Branch Coverage: $pct%" -ForegroundColor Gray
-                }
-            }
+        } catch {
+            $script:gateStatus.warnings += "Could not parse JaCoCo report in $($jFile.FullName)"
         }
-    } catch {
-        Write-Host "    Warning: Could not parse JaCoCo report" -ForegroundColor DarkYellow
+    }
+
+    if ($hasLine) {
+        $totalLines = $totalLinesMissed + $totalLinesCovered
+        if ($totalLines -gt 0) {
+            $pct = [math]::Round(($totalLinesCovered / $totalLines) * 100, 1)
+            $script:gateStatus.metrics.coverage.line = $pct
+            Write-Host "    Line Coverage: $pct%" -ForegroundColor Gray
+        }
+    }
+    if ($hasBranch) {
+        $totalBranches = $totalBranchesMissed + $totalBranchesCovered
+        if ($totalBranches -gt 0) {
+            $pct = [math]::Round(($totalBranchesCovered / $totalBranches) * 100, 1)
+            $script:gateStatus.metrics.coverage.branch = $pct
+            Write-Host "    Branch Coverage: $pct%" -ForegroundColor Gray
+        }
     }
 }
 
@@ -1182,7 +1203,21 @@ if ($Baseline) {
 # ============================================
 # GATE: ReproTest - a bug fix is proven by a test that was red before and is green now
 # ============================================
-if ($ReproTest -and -not $Baseline) {
+if (-not $ReproTest -and $settings.scenario -eq "bugfix" -and -not $Baseline) {
+    if (Test-Path $reproFile) {
+        try {
+            $rec = Get-Content $reproFile -Raw | ConvertFrom-Json
+            if ($rec.test) { $ReproTest = $rec.test }
+        } catch {}
+    } elseif ($settings.reproTest) {
+        $ReproTest = $settings.reproTest
+    }
+}
+
+if ($settings.scenario -eq "bugfix" -and -not $Baseline -and -not $ReproTest) {
+    Add-GateError "ReproTest" "No reproduction test recorded or passed to -ReproTest" "Scenario is bugfix, but no reproduction test was recorded. Run once with -ReproTest Class#method while the test is red."
+    Set-Gate "ReproTest" $false
+} elseif ($ReproTest -and -not $Baseline) {
     $match = @($testCases.Keys | Where-Object { $_ -eq $ReproTest -or $_.EndsWith(".$ReproTest") })
     if ($match.Count -ne 1) {
         Add-GateError "ReproTest" "Reproduction test not found (or ambiguous)" "'$ReproTest' matched $($match.Count) executed tests. Use Class#method or package.Class#method."
