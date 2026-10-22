@@ -21,6 +21,12 @@ dependencies:
   - lombok                         # Lombok
   - devtools                       # Spring Boot DevTools
 
+# Database environment for env-up.ps1 / env-down.ps1
+# none (only SonarQube) | mongodb | postgresql | db2
+databaseType: mongodb
+databasePort: 27017
+databaseHost: localhost
+
 # Maven build settings
 maven:
   # Artifact resolution goes through the corporate Artifactory configured in this file.

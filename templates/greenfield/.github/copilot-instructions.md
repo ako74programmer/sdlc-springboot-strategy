@@ -26,8 +26,8 @@ Requirement → @sdlc-orchestrator
 - **Packages**: Package by feature, not by layer — `com.example.app.customer` holds `Customer`, `CustomerRepository`, `CustomerService`, `CustomerController`, `CustomerDto`. Cross-cutting code (`exception`, `config`) gets its own package.
 - **Validation**: Always annotate DTOs with `@Valid` and JSR-380 constraints (`@NotNull`, `@Size`, `@Email`).
 - **Injection**: Constructor injection only. No `@Autowired` on fields.
-- **Persistence**: Spring Data MongoDB. Documents are `@Document` classes, repositories extend `MongoRepository`. Never build queries by concatenating user input — use `Query`/`Criteria` or derived query methods.
-- **Testing**: Use `@WebMvcTest` for API endpoints, `@DataMongoTest` for repositories, `@SpringBootTest` for integration tests. Use AssertJ and Mockito.
+- **Persistence**: Spring Data (MongoDB or JPA/PostgreSQL/DB2 depending on configuration). Repositories extend `MongoRepository` or `JpaRepository`/`CrudRepository`. Never build queries by concatenating user input — use derived query methods or parameterized queries.
+- **Testing**: Use `@WebMvcTest` for API endpoints, `@DataMongoTest` or `@DataJpaTest` for repositories, `@SpringBootTest` for integration tests. Use AssertJ and Mockito.
 - **Coverage**: Minimum 60% line coverage enforced by JaCoCo. Aim for 80%+ on service layer.
 
 ## Quality Gates (enforced by `sdlc.ps1`)

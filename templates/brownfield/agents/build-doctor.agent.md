@@ -18,8 +18,8 @@ Role: You make an existing project build and its tests run. Nothing more.
 2. Classify it: dependency resolution, Java version mismatch, removed/moved API, annotation processor (Lombok), configuration property, test infrastructure.
 3. Apply the smallest fix:
    - dependency version that does not exist -> nearest existing version managed by the Spring Boot BOM, or remove the explicit version so the BOM manages it
-   - API moved in a Spring Boot major version -> new package/annotation (Spring Boot 4: `org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest`, `org.springframework.boot.data.mongodb.test.autoconfigure.DataMongoTest`, `@MockitoBean` instead of `@MockBean`, Jackson 3 `tools.jackson.*`)
-   - renamed properties (Spring Boot 4 MongoDB: `spring.mongodb.uri`, `spring.data.mongodb.auto-index-creation`)
+   - API moved in a Spring Boot major version -> new package/annotation (Spring Boot 4: `org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest`, `...DataMongoTest` / `...DataJpaTest`, `@MockitoBean` instead of `@MockBean`, Jackson 3 `tools.jackson.*`)
+   - renamed properties (Spring Boot 4 MongoDB: `spring.mongodb.uri`, `spring.data.mongodb.auto-index-creation`; datasource: `spring.datasource.url`)
 4. Verify: `.\tools\sdlc.ps1 -SkipSonar -SkipXray`. Compilation and Tests must pass; a `@SpringBootTest` context test proves the application starts.
 5. Repeat until green or until the same error comes back twice - then stop and report it.
 

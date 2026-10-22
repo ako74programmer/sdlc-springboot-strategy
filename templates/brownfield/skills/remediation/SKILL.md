@@ -17,7 +17,7 @@ Signals: fix what the last review found - the task refers to the review report o
 
 - `sdlc-settings.json` `scenario` must be `remediation` (it enables the `SonarQube-Issues` and `TestCount` gates); if not, tell the user to re-run `attach-project.ps1 -Scenario remediation`. `reviewSource` must name the archived review (`sdlc-history/<timestamp>`); if it is empty, tell the user to run `.\scripts\start-scenario.ps1 -Scenario remediation -NewTask` after a review.
 - Limits: `sonarMaxOpenIssues` must be `0`; if not, tell the user to re-run `attach-project.ps1 -Scenario remediation`.
-- Environment: MongoDB and SonarQube must run before any gate (`..\..\scripts\env-up.ps1`). SonarQube is part of the goal: if it is unavailable, stop and ask the user to start it (`sdlc.ps1` never reports PASSED in remediation without it).
+- Environment: SonarQube and the project database (if configured) must run before any gate (`..\..\scripts\env-up.ps1`). SonarQube is part of the goal: if it is unavailable, stop and ask the user to start it (`sdlc.ps1` never reports PASSED in remediation without it).
 - Baseline: `.\tools\sdlc.ps1 -Baseline`.
 
 ## Flow

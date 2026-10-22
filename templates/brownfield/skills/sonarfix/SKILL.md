@@ -16,7 +16,7 @@ Signals: SonarQube issues / Quality Gate to fix.
 ## Start
 
 - Limits: `sdlc-settings.json` `sonarMaxOpenIssues` must be `0`; if not, tell the user to re-run `attach-project.ps1 -Scenario sonarfix`.
-- Environment: MongoDB and SonarQube must run before any gate (`..\..\scripts\env-up.ps1`). SonarQube is part of the goal: if it is unavailable, stop and ask the user to start it (`sdlc.ps1` refuses a sonarfix baseline without SonarQube data and never reports PASSED without it).
+- Environment: SonarQube and the project database (if configured) must run before any gate (`..\..\scripts\env-up.ps1`). SonarQube is part of the goal: if it is unavailable, stop and ask the user to start it (`sdlc.ps1` refuses a sonarfix baseline without SonarQube data and never reports PASSED without it).
 - Baseline: `.\tools\sdlc.ps1 -Baseline`.
 
 ## Flow

@@ -502,7 +502,7 @@ if (-not $SkipRecon) {
 }
 
 Write-Host "`nNext steps:" -ForegroundColor Yellow
-Write-Host "  1. .\scripts\env-up.ps1 -ProjectPath $projectsDir\$Project   (MongoDB + SonarQube + token)"
+Write-Host "  1. .\scripts\env-up.ps1 -ProjectPath $projectsDir\$Project   (Database + SonarQube + token)"
 Write-Host "  2. Open the folder $projectsDir\$Project in a NEW VS Code window (agents and .vscode/mcp.json load from the project root)"
 Write-Host "  3. Ctrl+Shift+P > 'MCP: List Servers' > erste-intranet-mcp > Start Server (trust it once; needed for Jira/Confluence tasks)"
 Write-Host "  4. In chat pick @sdlc-orchestrator and paste the task or the Jira link"

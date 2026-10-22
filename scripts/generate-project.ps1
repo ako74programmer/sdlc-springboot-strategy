@@ -450,7 +450,7 @@ Write-Host "  +-- sonar-project.properties"
 Write-Host "  +-- pom.xml               (enriched with JaCoCo + OWASP)"
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
-Write-Host "  1. .\scripts\env-up.ps1 -ProjectPath $targetPath   (MongoDB + SonarQube + token)"
+Write-Host "  1. .\scripts\env-up.ps1 -ProjectPath $targetPath   (Database + SonarQube + token)"
 Write-Host "  2. cd $targetPath"
 Write-Host "  3. .\tools\sdlc.ps1                   (run local SDLC gates)"
 Write-Host "  4. .\tools\enable-hooks.ps1            (enable pre-commit hooks)"

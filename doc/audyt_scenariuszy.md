@@ -47,3 +47,12 @@
 * **Problem:** Przy wolniejszej sieci pobieranie wszystkich zależności od nowa może zająć 5–15 minut cennego czasu bitwy.
 * **Do decyzji:** Czy zostawiamy twardy wymóg `-CiParity`, czy wprowadzamy przełącznik awaryjny (np. `-Fast` / `-SkipParity`) na wypadek kończącego się czasu?
 * **Rekomendacja:** Dodać do `sdlc.ps1` przełącznik `-Fast` (oraz flagę `fastMode` w `sdlc-settings.json`), który pozwala pominąć czyszczenie lokalnego cache Mavena i wykonać ostateczną weryfikację na istniejącym repozytorium `~/.m2`. W skillach zapisać regułę: ostateczna weryfikacja to `-CiParity`, chyba że aktywny jest tryb `-Fast` (brak czasu). Pominięcie `-CiParity` jest odnotowywane w `warnings` raportu, ale nie blokuje statusu `PASSED`.
+
+---
+
+## 7. Parametryzacja bazy danych (PostgreSQL, DB2, MongoDB, None)
+* **Stan:** Narzędzie domyślnie startowało MongoDB i SonarQube, co ograniczało jego przydatność poza zadaniami z MongoDB.
+* **Rozwiązanie (wdrożone 2026-10-22):**
+  - `config/project-config.yaml`: dodano parametry `databaseType` (`mongodb` / `postgresql` / `db2` / `none`), `databasePort` oraz `databaseHost`.
+  - `scripts/env-up.ps1` i `scripts/env-down.ps1`: dodano parametry `-Database`, `-DbPort`, `-DbHost`, `-SkipDb`. Jeśli wybrano `none` lub `-SkipDb`, skrypt podnosi/zatrzymuje wyłącznie SonarQube. W przypadku PostgreSQL/DB2 skrypt sprawdza dostępność portu (lub dedykowany skrypt startowy), a dla MongoDB uruchamia lokalnego demona `mongod`.
+  - Szablony agentów i skilli: odwołania do bazy danych zostały uogólnione (obsługa `@DataJpaTest` obok `@DataMongoTest`, uniwersalne instrukcje środowiskowe).

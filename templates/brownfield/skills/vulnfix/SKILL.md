@@ -17,7 +17,7 @@ Signals: vulnerable dependencies - Xray findings, CVE ids, corporate vulnerabili
 
 - `sdlc-settings.json` `scenario` must be `vulnfix` (it enables the `VulnGuard` and `SonarQube-Issues` gates); if not, tell the user to re-run `attach-project.ps1 -Scenario vulnfix`. `migrationBootVersion` and `migrationJavaVersion` must be set there (they are the target versions, when set), and `javaHome` must point to a JDK of `migrationJavaVersion`.
 - Limits: `sonarMaxOpenIssues` must be `0`; if not, tell the user to re-run `attach-project.ps1 -Scenario vulnfix`.
-- Environment: MongoDB and SonarQube must run before any gate (`..\..\scripts\env-up.ps1`). SonarQube is part of the goal: if it is unavailable, stop and ask the user to start it (`sdlc.ps1` refuses a vulnfix baseline without SonarQube data and never reports PASSED without it).
+- Environment: SonarQube and the project database (if configured) must run before any gate (`..\..\scripts\env-up.ps1`). SonarQube is part of the goal: if it is unavailable, stop and ask the user to start it (`sdlc.ps1` refuses a vulnfix baseline without SonarQube data and never reports PASSED without it).
 - Baseline: `.\tools\sdlc.ps1 -Baseline`. It is recorded only when the Xray scan and the SonarQube analysis really ran (`sdlc.ps1` refuses it otherwise and says why): no jar because the build does not compile is a `buildfix` first; a missing `jfrog-xray.properties`, `jf`, token, Xray or SonarQube server is the user's environment - stop and tell the user.
 
 ## Flow

@@ -15,7 +15,7 @@ Report only: `Toolchain` is `PASS` in the baseline, `analysis.md` and `security-
 
 - Add a line `Review scope: changes <base>..HEAD` to `task.md` (the task names a merge request, branch or commits; `<base>` is the branch it merges into, e.g. `origin/main`) or `Review scope: project` (the whole project); if the task does not say which, ask once.
 - `sdlc-settings.json` `scenario` must be `review` (it enables the `Toolchain` gate); if not, tell the user to re-run `attach-project.ps1 -Scenario review`.
-- Environment: MongoDB and SonarQube must run before any gate (`..\..\scripts\env-up.ps1`). Never use `-Skip*` flags: the measurement is part of the report (`Toolchain` fails on any skip).
+- Environment: SonarQube and the project database (if configured) must run before any gate (`..\..\scripts\env-up.ps1`). Never use `-Skip*` flags: the measurement is part of the report (`Toolchain` fails on any skip).
 - Baseline: `.\tools\sdlc.ps1 -Baseline`. Read `gates.Toolchain` and `toolchain` from `sdlc-report.json` right after it: when `Toolchain` is `FAIL`, stop and give the user its `errors[]` - JDK, Maven, `settings.xml`, SonarQube and Xray access are the user's environment, never something a delegate changes. When the user has fixed it (e.g. re-ran `attach-project.ps1` or `env-up.ps1`), record the baseline again: no file has changed yet. Every other red gate (including `SonarQube` failing on the project's own configuration, when `Toolchain` warns "server reached") is a finding for the report, not a reason to stop.
 
 ## Flow

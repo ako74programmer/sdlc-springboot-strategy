@@ -6,12 +6,50 @@
 
 [CmdletBinding()]
 param(
+    [string]$Database = "",
+    [int]$DbPort = 0,
     [int]$MongoPort = 27017,
     [switch]$SkipMongo,
+    [switch]$SkipDb,
     [switch]$SkipSonar
 )
 
 $ErrorActionPreference = "Continue"
+$scriptDir = $PSScriptRoot
+$repoRoot = Split-Path $scriptDir -Parent
+
+function Get-ConfigValue([string]$key, [string]$default = "") {
+    $cfgFile = Join-Path $repoRoot "config\project-config.yaml"
+    if (Test-Path $cfgFile) {
+        foreach ($line in Get-Content $cfgFile) {
+            if ($line -match "^\s*$([regex]::Escape($key))\s*:\s*(.*)$") {
+                return ($matches[1] -split '#')[0].Trim().Trim('"').Trim("'")
+            }
+        }
+    }
+    return $default
+}
+
+$cfgDb = Get-ConfigValue "databaseType" "mongodb"
+if (-not $Database) { $Database = $cfgDb }
+if (-not $DbPort -or $DbPort -eq 0) {
+    if ($Database.ToLower() -eq $cfgDb.ToLower()) {
+        $cfgPort = Get-ConfigValue "databasePort" ""
+        if ($cfgPort -match '^\d+$') { $DbPort = [int]$cfgPort }
+    }
+    if (-not $DbPort -or $DbPort -eq 0) {
+        $DbPort = switch ($Database.ToLower()) {
+            "mongodb"    { 27017 }
+            "mongo"      { 27017 }
+            "postgresql" { 5432 }
+            "postgres"   { 5432 }
+            "db2"        { 50000 }
+            default      { 0 }
+        }
+    }
+}
+if ($SkipMongo) { $SkipDb = $true }
+
 
 function Stop-ProcessTree {
     param([System.Diagnostics.Process[]]$Processes, [string]$Label)
@@ -54,13 +92,16 @@ if ($SkipSonar) {
 }
 
 # ---------------------------------------------------------------
-# 2. MongoDB
+# 2. Database
 # ---------------------------------------------------------------
-Write-Host "`n[2/3] MongoDB" -ForegroundColor Yellow
-if ($SkipMongo) {
-    Write-Host "    SKIPPED (-SkipMongo)" -ForegroundColor DarkGray
-} else {
+$dbLabel = if ($Database) { $Database } else { "none" }
+Write-Host "`n[2/3] Database ($dbLabel)" -ForegroundColor Yellow
+if ($SkipDb -or $Database -in @('none', '', 'h2')) {
+    Write-Host "    SKIPPED (no database managed or -SkipDb)" -ForegroundColor DarkGray
+} elseif ($Database -in @('mongodb', 'mongo')) {
     Stop-ProcessTree -Processes (Get-Process -Name mongod -ErrorAction SilentlyContinue) -Label "mongod"
+} else {
+    Write-Host "    External database '$Database' is not stopped automatically by this script." -ForegroundColor DarkGray
 }
 
 # ---------------------------------------------------------------
@@ -78,7 +119,16 @@ function Test-PortOpen {
 }
 
 # env-up must not start before the ports and file locks are actually released.
-foreach ($check in @(@{ Name = "SonarQube"; Port = 9000 }, @{ Name = "SonarQube ES"; Port = 9001 }, @{ Name = "MongoDB"; Port = $MongoPort })) {
+$checks = [System.Collections.Generic.List[object]]::new()
+if (-not $SkipSonar) {
+    $checks.Add(@{ Name = "SonarQube"; Port = 9000 })
+    $checks.Add(@{ Name = "SonarQube ES"; Port = 9001 })
+}
+if (-not $SkipDb -and $Database -in @('mongodb', 'mongo') -and $DbPort -gt 0) {
+    $checks.Add(@{ Name = "MongoDB"; Port = $DbPort })
+}
+
+foreach ($check in $checks) {
     $deadline = (Get-Date).AddSeconds(30)
     while ((Get-Date) -lt $deadline -and (Test-PortOpen -Port $check.Port)) { Start-Sleep -Seconds 2 }
     if (Test-PortOpen -Port $check.Port) {

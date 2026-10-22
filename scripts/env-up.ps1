@@ -9,10 +9,14 @@
 [CmdletBinding()]
 param(
     [string]$SonarUrl = "http://localhost:9000",
+    [string]$Database = "",
+    [int]$DbPort = 0,
+    [string]$DbHost = "",
     [int]$MongoPort = 27017,
     [int]$MaxWaitSeconds = 240,
     [string]$ProjectPath = "",
     [switch]$SkipMongo,
+    [switch]$SkipDb,
     [switch]$SkipSonar,
     [switch]$SkipToken
 )
@@ -21,6 +25,40 @@ $ErrorActionPreference = "Stop"
 $scriptDir = $PSScriptRoot
 $repoRoot = Split-Path $scriptDir -Parent
 $tokenFile = Join-Path $repoRoot "sonar-token.txt"
+
+function Get-ConfigValue([string]$key, [string]$default = "") {
+    $cfgFile = Join-Path $repoRoot "config\project-config.yaml"
+    if (Test-Path $cfgFile) {
+        foreach ($line in Get-Content $cfgFile) {
+            if ($line -match "^\s*$([regex]::Escape($key))\s*:\s*(.*)$") {
+                return ($matches[1] -split '#')[0].Trim().Trim('"').Trim("'")
+            }
+        }
+    }
+    return $default
+}
+
+$cfgDb = Get-ConfigValue "databaseType" "mongodb"
+if (-not $Database) { $Database = $cfgDb }
+if (-not $DbPort -or $DbPort -eq 0) {
+    if ($Database.ToLower() -eq $cfgDb.ToLower()) {
+        $cfgPort = Get-ConfigValue "databasePort" ""
+        if ($cfgPort -match '^\d+$') { $DbPort = [int]$cfgPort }
+    }
+    if (-not $DbPort -or $DbPort -eq 0) {
+        $DbPort = switch ($Database.ToLower()) {
+            "mongodb"    { 27017 }
+            "mongo"      { 27017 }
+            "postgresql" { 5432 }
+            "postgres"   { 5432 }
+            "db2"        { 50000 }
+            default      { 0 }
+        }
+    }
+}
+if (-not $DbHost) { $DbHost = Get-ConfigValue "databaseHost" "localhost" }
+if ($SkipMongo) { $SkipDb = $true }
+
 
 function Test-TcpPort {
     param([string]$ComputerName = "localhost", [int]$Port)
@@ -80,22 +118,41 @@ Write-Host "          SDLC ENVIRONMENT UP           " -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------
-# 1. MongoDB
+# 1. Database ($Database)
 # ---------------------------------------------------------------
-Write-Host "`n[1/3] MongoDB (port $MongoPort)" -ForegroundColor Yellow
-if ($SkipMongo) {
-    Write-Host "    SKIPPED (-SkipMongo)" -ForegroundColor DarkGray
-} elseif (Test-TcpPort -Port $MongoPort) {
-    Write-Host "    already running" -ForegroundColor Green
-} else {
-    Start-InOwnWindow -ScriptPath (Join-Path $scriptDir "start-mongo.ps1") -Title "MongoDB" | Out-Null
-    $deadline = (Get-Date).AddSeconds(60)
-    while ((Get-Date) -lt $deadline -and -not (Test-TcpPort -Port $MongoPort)) { Start-Sleep -Seconds 2 }
-    if (Test-TcpPort -Port $MongoPort) {
-        Write-Host "    started" -ForegroundColor Green
+$dbType = $Database.ToLower()
+Write-Host "`n[1/3] Database: $dbType $(if ($DbPort) { "(port $DbPort)" })" -ForegroundColor Yellow
+
+if ($SkipDb -or $dbType -in @("none", "", "h2")) {
+    Write-Host "    SKIPPED (database: $(if ($dbType) { $dbType } else { 'none' }))" -ForegroundColor DarkGray
+} elseif ($dbType -in @("mongodb", "mongo")) {
+    if (Test-TcpPort -ComputerName $DbHost -Port $DbPort) {
+        Write-Host "    MongoDB already running on ${DbHost}:${DbPort}" -ForegroundColor Green
     } else {
-        Write-Error "MongoDB did not open port $MongoPort within 60s. Check the MongoDB window."
+        Start-InOwnWindow -ScriptPath (Join-Path $scriptDir "start-mongo.ps1") -Title "MongoDB" | Out-Null
+        $deadline = (Get-Date).AddSeconds(60)
+        while ((Get-Date) -lt $deadline -and -not (Test-TcpPort -ComputerName $DbHost -Port $DbPort)) { Start-Sleep -Seconds 2 }
+        if (Test-TcpPort -ComputerName $DbHost -Port $DbPort) {
+            Write-Host "    MongoDB started on ${DbHost}:${DbPort}" -ForegroundColor Green
+        } else {
+            Write-Error "MongoDB did not open port $DbPort within 60s. Check the MongoDB window."
+        }
     }
+} elseif ($dbType -in @("postgresql", "postgres", "db2")) {
+    if (Test-TcpPort -ComputerName $DbHost -Port $DbPort) {
+        Write-Host "    $Database already running and listening on ${DbHost}:${DbPort}" -ForegroundColor Green
+    } else {
+        $customStart = Join-Path $scriptDir "start-$dbType.ps1"
+        if (Test-Path $customStart) {
+            Write-Host "    launching $customStart..." -ForegroundColor Gray
+            & $customStart
+        } else {
+            Write-Host "    WARNING: $Database is not listening on ${DbHost}:${DbPort}." -ForegroundColor DarkYellow
+            Write-Host "    Start your $Database instance (service or container) on port $DbPort before running database tests." -ForegroundColor Gray
+        }
+    }
+} else {
+    Write-Host "    Unknown database type '$Database' - skipping" -ForegroundColor DarkYellow
 }
 
 # ---------------------------------------------------------------
@@ -186,7 +243,11 @@ if ($SkipToken -or $SkipSonar) {
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "  ENVIRONMENT READY                     " -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  MongoDB:   localhost:$MongoPort"
+if ($dbType -notin @("none", "", "h2") -and -not $SkipDb) {
+    Write-Host "  Database:  $Database (${DbHost}:${DbPort})"
+} else {
+    Write-Host "  Database:  none / in-memory"
+}
 Write-Host "  SonarQube: $SonarUrl"
 Write-Host "`n  Next: cd <project> ; .\tools\sdlc.ps1"
 Write-Host "  Stop:  .\scripts\env-down.ps1`n"

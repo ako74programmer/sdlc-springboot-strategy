@@ -15,7 +15,7 @@ Signals: does not compile, dependency errors, does not start.
 
 ## Start
 
-- Environment: MongoDB and SonarQube must run before any gate (`..\..\scripts\env-up.ps1`). If SonarQube is unavailable, continue with `-SkipSonar` and say so in the final report.
+- Environment: SonarQube and the project database (if configured) must run before any gate (`..\..\scripts\env-up.ps1`). If SonarQube is unavailable, continue with `-SkipSonar` and say so in the final report.
 - Baseline: `.\tools\sdlc.ps1 -Baseline`.
 
 ## Flow

@@ -16,7 +16,7 @@ Signals: work on tests only - add missing tests, raise coverage, migrate the tes
 ## Start
 
 - `sdlc-settings.json` `scenario` must be `tests` (it enables the `TestMigration` gate); if not, tell the user to re-run `attach-project.ps1 -Scenario tests`.
-- Environment: MongoDB and SonarQube must run before any gate (`..\..\scripts\env-up.ps1`). If SonarQube is unavailable, continue with `-SkipSonar` and say so in the final report.
+- Environment: SonarQube and the project database (if configured) must run before any gate (`..\..\scripts\env-up.ps1`). If SonarQube is unavailable, continue with `-SkipSonar` and say so in the final report.
 - Baseline: `.\tools\sdlc.ps1 -Baseline`.
 
 ## Flow
