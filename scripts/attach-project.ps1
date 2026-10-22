@@ -171,6 +171,10 @@ foreach ($agent in Get-ChildItem (Join-Path $templates "agents") -File) {
     Add-ProjectFile $agent.FullName ".github\agents\$($agent.Name)" -Overwrite:$NewTask
 }
 Add-ProjectFile (Join-Path $templates "copilot-instructions.md") ".github\copilot-instructions.md" -Overwrite:$NewTask
+# One skill per scenario; the orchestrator reads only the skill of the current task
+foreach ($skill in Get-ChildItem (Join-Path $templates "skills") -Directory) {
+    Add-ProjectFile (Join-Path $skill.FullName "SKILL.md") ".github\skills\$($skill.Name)\SKILL.md" -Overwrite:$NewTask
+}
 # Jira/Confluence read-only, so the orchestrator can fetch the task text
 Add-ProjectFile (Join-Path $templates "mcp.json") ".vscode\mcp.json"
 
