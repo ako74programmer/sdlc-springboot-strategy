@@ -1,9 +1,11 @@
-# Configuration file for Spring Boot Project Generator (Spring Initializr API)
+# Factory defaults for Spring Boot projects.
+# Machine- and corporation-specific values belong in project-config.local.yaml,
+# which is ignored by Git and loaded automatically by the scripts.
 
 project:
   type: maven-project              # maven-project | gradle-project
   language: java                   # java | kotlin | groovy
-  bootVersion: 4.1.1               # Spring Boot version ('latest' = Initializr recommended default)
+  bootVersion: 4.1.1               # Spring Boot version ('latest' = Initializr default)
   groupId: pl.erste.sdlc
   artifactId: springboot-sdlc-demo
   name: springboot-sdlc-demo
@@ -12,44 +14,37 @@ project:
   packaging: jar                   # jar | war
   javaVersion: 25                  # 17 | 21 | 25
 
-# Spring Initializr dependency keys (matching start.spring.io identifiers)
 dependencies:
-  - web                            # Spring Web
-  - data-mongodb                   # Spring Data MongoDB (local mongod on 127.0.0.1:27017)
-  - validation                     # Validation (Hibernate Validator)
-  - actuator                       # Spring Boot Actuator
-  - lombok                         # Lombok
-  - devtools                       # Spring Boot DevTools
+  - web
+  - validation
+  - actuator
+  - lombok
+  - devtools
 
-# Database environment for env-up.ps1 / env-down.ps1
-# none (only SonarQube) | mongodb | postgresql | db2
-databaseType: mongodb
-databasePort: 27017
+# Database used by env-up.ps1 / env-down.ps1. The project may override this
+# locally or the user may pass -Database/-DbPort/-DbHost explicitly.
+# none | mongodb | postgresql | db2 | h2
+databaseType: none
+databasePort: 0
 databaseHost: localhost
 
-# Maven build settings
 maven:
-  # Artifact resolution goes through the corporate Artifactory configured in this file.
-  # Leave empty to rely on Maven's default ~/.m2/settings.xml.
-  settingsFile: "C:\Users\160246\.m2\settings.xml"
-  # Folder with JDKs (it and its subfolders are searched for a 'release' file); attach-project.ps1 picks the one
-  # matching the project's Java version. Empty = java from PATH.
-  jdksDir: "C:\Users\160246\Desktop\java-tools\java"
-  # Maven used by the brownfield tools (tools\sdlc.ps1, recon.ps1, use-java.ps1); a Maven Wrapper in the project wins.
-  # Keep it equal to the CI builder image: a different Maven hides CI-only failures (2026-10-19: 3.9.16 vs 3.9.11).
-  # attach-project.ps1 looks for <mavensDir>\apache-maven-<mavenVersion> and downloads it from Artifactory when missing.
+  # Empty = Maven uses the default ~/.m2/settings.xml.
+  settingsFile: ""
+  # Empty = Java/Maven from PATH. attach-project.ps1 uses these when provided.
+  jdksDir: ""
   mavenVersion: 3.9.16
-  mavensDir: "C:\Users\160246\Desktop\java-tools"
+  mavensDir: ""
 
-# SDLC Pipeline Enrichments
 sdlc:
   enableSonarQube: true
-  enableOwaspCheck: false          # off: NVD database cannot be downloaded here; the corporate Xray scan is the vulnerability gate
+  enableOwaspCheck: false
   sonarHostUrl: "http://localhost:9000"
-  owaspFailOnCvss: 7.0             # CVSS score threshold to fail build (High/Critical)
-  owaspFailOnError: false          # only with enableOwaspCheck: true; true = a failed NVD update/analysis fails the gate
-  enableXray: true                 # JFrog Xray gate - zero findings allowed (token: JF_ACCESS_TOKEN or jfrog.token)
-  xrayUrl: "https://ewsi.centrala.bzwbk:9999"
-  xrayWatches: "XrayWatch"         # comma-separated Xray watches
-  xrayInsecureTls: true            # corporate CA not trusted by jf
-  jacocoVersion: 0.8.15            # must support the class file version of javaVersion (0.8.15 = Java 25)
+  owaspFailOnCvss: 7.0
+  owaspFailOnError: false
+  # Xray is enabled by the corporate local override once xrayUrl is configured.
+  enableXray: false
+  xrayUrl: ""
+  xrayWatches: ""
+  xrayInsecureTls: false
+  jacocoVersion: 0.8.15

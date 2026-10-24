@@ -11,6 +11,8 @@ Param(
 )
 
 $ErrorActionPreference = "Stop"
+$repoRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $repoRoot "scripts\config-loader.ps1")
 $templateDir = "templates/greenfield"
 $generatedMarker = ".sdlc-generated"
 
@@ -33,55 +35,38 @@ if (-not (Test-Path $ConfigFile)) {
 }
 
 Write-Host "[1/7] Reading configuration from $ConfigFile..." -ForegroundColor Yellow
+$config = Read-FactoryConfig $ConfigFile
+$configValues = $config.Values
 $configLines = Get-Content $ConfigFile
-
-# Line-based parser for project-config.yaml (flat key: value pairs, quotes and trailing comments supported)
-function Get-YamlValue([string]$key, [string]$default = "") {
-    $pattern = "^\s*$([regex]::Escape($key))\s*:\s*(.*)$"
-    foreach ($line in $configLines) {
-        if ($line -cmatch $pattern) {
-            $raw = $matches[1].Trim()
-            if ($raw -match '^"([^"]*)"') {
-                $val = $matches[1]
-            } elseif ($raw -match "^'([^']*)'") {
-                $val = $matches[1]
-            } else {
-                $val = ($raw -split '#')[0].Trim()
-            }
-            if ($val) { return $val }
-            return $default
-        }
-    }
-    return $default
-}
+Write-Host "    Local override: $(if ($config.LocalLoaded) { $config.LocalFile } else { 'none' })" -ForegroundColor Gray
 
 # Project settings
-$type        = Get-YamlValue "type" "maven-project"
-$language    = Get-YamlValue "language" "java"
-$bootVersion = Get-YamlValue "bootVersion" ""
-$groupId     = Get-YamlValue "groupId" "com.example.sdlc"
-$artifactId  = Get-YamlValue "artifactId" "springboot-sdlc-demo"
-$name        = Get-YamlValue "name" "springboot-sdlc-demo"
-$description = Get-YamlValue "description" "Spring Boot Service with SDLC"
-$packageName = Get-YamlValue "packageName" "com.example.sdlc.demo"
-$packaging   = Get-YamlValue "packaging" "jar"
-$javaVersion = Get-YamlValue "javaVersion" "21"
+$type        = Get-ConfigValue $configValues "type" "maven-project"
+$language    = Get-ConfigValue $configValues "language" "java"
+$bootVersion = Get-ConfigValue $configValues "bootVersion" ""
+$groupId     = Get-ConfigValue $configValues "groupId" "com.example.sdlc"
+$artifactId  = Get-ConfigValue $configValues "artifactId" "springboot-sdlc-demo"
+$name        = Get-ConfigValue $configValues "name" "springboot-sdlc-demo"
+$description = Get-ConfigValue $configValues "description" "Spring Boot Service with SDLC"
+$packageName = Get-ConfigValue $configValues "packageName" "com.example.sdlc.demo"
+$packaging   = Get-ConfigValue $configValues "packaging" "jar"
+$javaVersion = Get-ConfigValue $configValues "javaVersion" "21"
 
 # SDLC settings
-$enableSonarQube = Get-YamlValue "enableSonarQube" "true"
-$enableOwaspCheck = Get-YamlValue "enableOwaspCheck" "true"
-$sonarHostUrl    = Get-YamlValue "sonarHostUrl" "http://localhost:9000"
-$owaspFailOnCvss = Get-YamlValue "owaspFailOnCvss" "7.0"
-$owaspFailOnError = Get-YamlValue "owaspFailOnError" "true"
-$enableXray      = Get-YamlValue "enableXray" "false"
-$xrayUrl         = Get-YamlValue "xrayUrl" ""
-$xrayWatches     = Get-YamlValue "xrayWatches" ""
-$xrayInsecureTls = Get-YamlValue "xrayInsecureTls" "false"
+$enableSonarQube = Get-ConfigValue $configValues "enableSonarQube" "true"
+$enableOwaspCheck = Get-ConfigValue $configValues "enableOwaspCheck" "true"
+$sonarHostUrl    = Get-ConfigValue $configValues "sonarHostUrl" "http://localhost:9000"
+$owaspFailOnCvss = Get-ConfigValue $configValues "owaspFailOnCvss" "7.0"
+$owaspFailOnError = Get-ConfigValue $configValues "owaspFailOnError" "true"
+$enableXray      = Get-ConfigValue $configValues "enableXray" "false"
+$xrayUrl         = Get-ConfigValue $configValues "xrayUrl" ""
+$xrayWatches     = Get-ConfigValue $configValues "xrayWatches" ""
+$xrayInsecureTls = Get-ConfigValue $configValues "xrayInsecureTls" "false"
 # JaCoCo must understand the class file version produced by javaVersion (0.8.15 covers Java 25)
-$jacocoVersion   = Get-YamlValue "jacocoVersion" "0.8.15"
+$jacocoVersion   = Get-ConfigValue $configValues "jacocoVersion" "0.8.15"
 
 # Maven settings.xml (CLI parameter wins over config; empty = Maven default ~/.m2/settings.xml)
-if (-not $MavenSettings) { $MavenSettings = Get-YamlValue "settingsFile" "" }
+if (-not $MavenSettings) { $MavenSettings = Get-ConfigValue $configValues "settingsFile" "" }
 $mvnSettingsArgs = @()
 if ($MavenSettings) {
     if (Test-Path $MavenSettings) {

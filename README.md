@@ -15,7 +15,7 @@ Główna zasada architektoniczna:
 ---
 
 ### ✨ Kluczowe Funkcje
-- ⚙️ **Deklaratywny plik YAML (`config/project-config.yaml`)**: Jedno źródło prawdy określające wersję Java, build tool, metadane, zależności oraz konfigurację SDLC (SonarQube URL, OWASP threshold).
+- ⚙️ **Konfiguracja fabryki z lokalnym override**: `config/project-config.yaml` zawiera bezpieczne wartości bazowe, a opcjonalny `config/project-config.local.yaml` (tworzony z `config/project-config.local.example.yaml`) zawiera ścieżki stanowiska i adresy korporacyjne. Lokalny plik jest ładowany automatycznie i ignorowany przez Git.
 - ⚡ **Integracja ze Spring Initializr REST API**: Automatyczne pobieranie najnowszej oficjalnej struktury i skryptów Maven Wrapper (`mvnw` / `mvnw.cmd`).
 - 🛡️ **Lokalne Bramki Jakościowe (`tools/sdlc.ps1`)**:
   1. Kompilacja projektu (`compile`)
@@ -41,8 +41,9 @@ Główna zasada architektoniczna:
 ```text
 sdlc-springboot-strategy/
 ├── config/
-│   ├── project-config.yaml       # Plik konfiguracyjny projektu + SDLC
-│   └── scenario-config.yaml      # Scenariusz bitwy, katalog projects/, limity
+│   ├── project-config.yaml       # Neutralna konfiguracja projektu + SDLC
+│   ├── project-config.local.example.yaml # Wzór konfiguracji stanowiska
+│   └── scenario-config.yaml      # Reguły fabryki, katalog projects/, limity
 ├── templates/
 │   ├── greenfield/               # Szablon generatora (kod od zera)
 │   │   ├── sdlc.ps1              # Lokalny skrypt bramek jakościowych
@@ -98,19 +99,26 @@ springboot-sdlc-demo/
 - PowerShell 5.1+ (Windows) lub PowerShell Core (Linux/macOS)
 - Git
 
-#### Krok 1: Wygeneruj Projekt
-Dostosuj parametry w `config/project-config.yaml`, a następnie uruchom:
+#### Krok 1: Skonfiguruj stanowisko (jednorazowo)
+Skopiuj `config/project-config.local.example.yaml` do `config/project-config.local.yaml` i uzupełnij ścieżki JDK/Mavena, `settings.xml`, adres Xray oraz typ używanej bazy. Szczegóły: [scenariusze testowe](doc/scenarios/00-konfiguracja-fabryki.md).
+
+#### Krok 2: Wygeneruj projekt lub uruchom scenariusz
+Nie trzeba edytować YAML przed każdym zadaniem. Dla nowego projektu uruchom:
 ```powershell
 .\scripts\generate-project.ps1
 ```
 Nowy projekt zostanie utworzony w katalogu `projects/springboot-sdlc-demo` (`projectsDir` w `config/scenario-config.yaml`). Generator oznacza swoje projekty plikiem `.sdlc-generated` i nadpisuje tylko takie katalogi; istniejący katalog bez znacznika (np. pobrany kod) wymaga `-Force`.
 
-**Istniejący projekt (brownfield)**: pobierz kod do `projects/<nazwa>` i uruchom `.\scripts\attach-project.ps1 -Project <nazwa>` (albo `.\scripts\start-scenario.ps1 -Scenario bugfix -Project <nazwa>`). Skrypt tworzy gałąź `sdlc-work`, dodaje tylko brakujące narzędzia (wpisane do `.git/info/exclude`), dopisuje JaCoCo do `pom.xml` (sam pomiar), a na końcu uruchamia `tools\recon.ps1` i zapisuje `recon-report.json`. Generator nie nadpisze pobranego kodu (brak znacznika `.sdlc-generated`).
+**Istniejący projekt (brownfield)**: jedno polecenie pobiera repozytorium, podpina narzędzia i tworzy branch roboczy:
+```powershell
+.\scripts\start-scenario.ps1 -Scenario vulnfix -RepoUrl https://git.example.corp/team/service.git -Project service
+```
+Następnie otwórz `projects/service` w VS Code i przekaż zadanie agentowi `sdlc-orchestrator`. Parametry repozytorium i scenariusza są bieżącym wejściem zadania; nie trzeba wpisywać ich do `scenario-config.yaml`.
 
 **Brownfield - bramki porównawcze**: przed pierwszą zmianą `.\tools\sdlc.ps1 -Baseline` (zapis `sdlc-baseline.json`), potem każdy przebieg sprawdza `Regression` (żaden wcześniej zielony test nie pada, pokrycie i liczba problemów Sonara nie gorsze), `TestIntegrity` (brak usuniętych/wyłączonych/osłabionych testów, `NOSONAR`, zmian w `sonar-project.properties`), `DiffGuard` (rozmiar zmiany) i opcjonalnie `ReproTest` (`-ReproTest Klasa#metoda`: test czerwony przed poprawką, zielony po niej). Projekty treningowe: `.\scripts\new-fixture.ps1 -Name b2-failing-test` (lista i instrukcja: [tests/scenarios/README.md](tests/scenarios/README.md)).  
 Generator automatycznie uruchomi smoke test kompilacji.
 
-**Repozytorium artefaktów (Maven `settings.xml`)**: Maven domyślnie używa `~/.m2/settings.xml` — tam skonfigurowane jest firmowe Artifactory i to wystarcza. Jeśli plik leży gdzie indziej, wskaż go przez `maven.settingsFile` w configu, parametr `-MavenSettings` lub zmienną `MAVEN_SETTINGS`; generator i `tools/sdlc.ps1` przekażą go do Mavena jako `-s`.
+**Repozytorium artefaktów (Maven `settings.xml`)**: Maven domyślnie używa `~/.m2/settings.xml`. Jeśli plik leży gdzie indziej, wpisz go raz w `config/project-config.local.yaml`, użyj `-MavenSettings` albo zmiennej `MAVEN_SETTINGS`.
 
 #### Krok 2: Uruchom SonarQube
 Skrypt startuje lokalnie rozpakowaną dystrybucję SonarQube (ścieżka do `StartSonar.bat` jest w skrypcie):
@@ -245,7 +253,7 @@ Core architectural principle:
 - Git
 
 #### Step 1: Generate a New Project
-Configure your metadata in `config/project-config.yaml` and run:
+Copy `config/project-config.local.example.yaml` to `config/project-config.local.yaml` once for machine-specific paths and corporate URLs. Then run:
 ```powershell
 .\scripts\generate-project.ps1
 ```

@@ -16,6 +16,7 @@ Param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $repoRoot "scripts\config-loader.ps1")
 $fixturesDir = Join-Path $repoRoot "tests\scenarios"
 $fixtureDir = Join-Path $fixturesDir $Name
 
@@ -24,18 +25,10 @@ if (-not (Test-Path $fixtureDir)) {
     Write-Error "Scenario '$Name' not found in tests\scenarios. Available: $available"
 }
 
-function Get-ConfigValue([string]$file, [string]$key) {
-    foreach ($line in Get-Content (Join-Path $repoRoot $file) -ErrorAction SilentlyContinue) {
-        if ($line -match "^\s*$([regex]::Escape($key))\s*:\s*(.*)$") {
-            $raw = $matches[1].Trim()
-            if ($raw -match '^"([^"]*)"') { return $matches[1] }
-            return ($raw -split '#')[0].Trim()
-        }
-    }
-    return ""
-}
+$scenarioValues = (Read-FactoryConfig (Join-Path $repoRoot "config\scenario-config.yaml")).Values
+$projectValues = (Read-FactoryConfig (Join-Path $repoRoot "config\project-config.yaml")).Values
 
-if (-not $ProjectsDir) { $ProjectsDir = Get-ConfigValue "config/scenario-config.yaml" "projectsDir" }
+if (-not $ProjectsDir) { $ProjectsDir = Get-ConfigValue $scenarioValues "projectsDir" "" }
 if (-not $ProjectsDir) { $ProjectsDir = "projects" }
 if (-not $ProjectName) { $ProjectName = $Name }
 $target = Join-Path (Join-Path $repoRoot $ProjectsDir) $ProjectName
@@ -43,7 +36,7 @@ if (Test-Path $target) {
     Write-Error "$target already exists - remove it yourself or pass -ProjectName."
 }
 
-$mavenSettings = Get-ConfigValue "config/project-config.yaml" "settingsFile"
+$mavenSettings = Get-ConfigValue $projectValues "settingsFile" ""
 $tmp = Join-Path $repoRoot ("scratch\fixture-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 
 Push-Location $repoRoot

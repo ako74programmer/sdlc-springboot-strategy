@@ -1,4 +1,4 @@
-# Stops the local SDLC environment started by env-up.ps1: SonarQube (web + ES + CE) and MongoDB.
+# Stops the local SDLC environment started by env-up.ps1: SonarQube and managed database processes.
 #
 # Usage:
 #   .\scripts\env-down.ps1
@@ -17,24 +17,15 @@ param(
 $ErrorActionPreference = "Continue"
 $scriptDir = $PSScriptRoot
 $repoRoot = Split-Path $scriptDir -Parent
+. (Join-Path $repoRoot "scripts\config-loader.ps1")
 
-function Get-ConfigValue([string]$key, [string]$default = "") {
-    $cfgFile = Join-Path $repoRoot "config\project-config.yaml"
-    if (Test-Path $cfgFile) {
-        foreach ($line in Get-Content $cfgFile) {
-            if ($line -match "^\s*$([regex]::Escape($key))\s*:\s*(.*)$") {
-                return ($matches[1] -split '#')[0].Trim().Trim('"').Trim("'")
-            }
-        }
-    }
-    return $default
-}
-
-$cfgDb = Get-ConfigValue "databaseType" "mongodb"
+$projectConfig = Read-FactoryConfig (Join-Path $repoRoot "config\project-config.yaml")
+$projectValues = $projectConfig.Values
+$cfgDb = Get-ConfigValue $projectValues "databaseType" "none"
 if (-not $Database) { $Database = $cfgDb }
 if (-not $DbPort -or $DbPort -eq 0) {
     if ($Database.ToLower() -eq $cfgDb.ToLower()) {
-        $cfgPort = Get-ConfigValue "databasePort" ""
+        $cfgPort = Get-ConfigValue $projectValues "databasePort" ""
         if ($cfgPort -match '^\d+$') { $DbPort = [int]$cfgPort }
     }
     if (-not $DbPort -or $DbPort -eq 0) {
@@ -48,9 +39,8 @@ if (-not $DbPort -or $DbPort -eq 0) {
         }
     }
 }
+if (-not $DbHost) { $DbHost = Get-ConfigValue $projectValues "databaseHost" "localhost" }
 if ($SkipMongo) { $SkipDb = $true }
-
-
 function Stop-ProcessTree {
     param([System.Diagnostics.Process[]]$Processes, [string]$Label)
     if (-not $Processes) {

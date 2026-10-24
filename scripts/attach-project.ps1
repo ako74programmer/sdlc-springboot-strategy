@@ -29,25 +29,10 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $templates = Join-Path $repoRoot "templates\brownfield"
 
-function Read-FlatYaml([string]$file) {
-    $values = @{}
-    if (-not (Test-Path $file)) { return $values }
-    foreach ($line in Get-Content $file) {
-        if ($line -match '^\s*([A-Za-z][\w]*)\s*:\s*(.*)$') {
-            $key = $matches[1]
-            $raw = $matches[2].Trim()
-            if ($raw -match '^"([^"]*)"') { $val = $matches[1] }
-            elseif ($raw -match "^'([^']*)'") { $val = $matches[1] }
-            else { $val = ($raw -split '#')[0].Trim() }
-            # First occurrence wins, same as generate-project.ps1
-            if (-not $values.ContainsKey($key)) { $values[$key] = $val }
-        }
-    }
-    return $values
-}
+. (Join-Path $repoRoot "scripts\config-loader.ps1")
 
-$scenarioCfg = Read-FlatYaml (Join-Path $repoRoot $ScenarioConfig)
-$projectCfg = Read-FlatYaml (Join-Path $repoRoot $ProjectConfig)
+$scenarioCfg = (Read-FactoryConfig (Join-Path $repoRoot $ScenarioConfig)).Values
+$projectCfg = (Read-FactoryConfig (Join-Path $repoRoot $ProjectConfig)).Values
 if (-not $Scenario) { $Scenario = $scenarioCfg["scenarioType"] }
 if (-not $BaseBranch) { $BaseBranch = $scenarioCfg["scenarioBaseBranch"] }
 

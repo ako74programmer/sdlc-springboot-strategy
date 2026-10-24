@@ -20,6 +20,7 @@ Param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $repoRoot "scripts\config-loader.ps1")
 
 if ($RepoUrl -match '://[^/]*@') {
     Write-Error "RepoUrl must not contain credentials. Git Credential Manager provides them."
@@ -30,9 +31,8 @@ if ($Project -notmatch '^[A-Za-z0-9._-]+$' -or $Project -match '^\.+$') {
 }
 
 if (-not $ProjectsDir) {
-    $cfg = Join-Path $repoRoot $ScenarioConfig
-    $line = if (Test-Path $cfg) { Get-Content $cfg | Where-Object { $_ -match '^\s*projectsDir\s*:' } | Select-Object -First 1 }
-    $ProjectsDir = if ($line) { (($line -split ':', 2)[1] -split '#')[0].Trim().Trim('"') } else { "projects" }
+    $scenarioValues = (Read-FactoryConfig (Join-Path $repoRoot $ScenarioConfig)).Values
+    $ProjectsDir = Get-ConfigValue $scenarioValues "projectsDir" "projects"
 }
 $projectsPath = Join-Path $repoRoot $ProjectsDir
 $target = Join-Path $projectsPath $Project

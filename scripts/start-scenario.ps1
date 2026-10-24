@@ -20,27 +20,19 @@ Param(
     [string]$RepoUrl,
     [string]$BaseBranch,
     [string]$ScenarioConfig = "config/scenario-config.yaml",
+    [string]$ProjectConfig = "config/project-config.yaml",
     [switch]$Fresh,
     [switch]$NewTask
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $repoRoot "scripts\config-loader.ps1")
+$scenarioConfigData = Read-FactoryConfig (Join-Path $repoRoot $ScenarioConfig)
+$scenarioValues = $scenarioConfigData.Values
 $scenarios = @("greenfield", "buildfix", "bugfix", "sonarfix", "vulnfix", "vulnquick", "refactor", "feature", "tests", "migration", "review", "remediation")
 
-function Get-ScenarioValue([string]$key) {
-    $file = Join-Path $repoRoot $ScenarioConfig
-    if (-not (Test-Path $file)) { return "" }
-    foreach ($line in Get-Content $file) {
-        if ($line -match "^\s*$([regex]::Escape($key))\s*:\s*(.*)$") {
-            $raw = $matches[1].Trim()
-            if ($raw -match '^"([^"]*)"') { return $matches[1] }
-            return ($raw -split '#')[0].Trim()
-        }
-    }
-    return ""
-}
-
+function Get-ScenarioValue([string]$key) { return Get-ConfigValue $scenarioValues $key "" }
 if (-not $Scenario) { $Scenario = Get-ScenarioValue "scenarioType" }
 if (-not $Scenario) { $Scenario = "greenfield" }
 if (-not $Project) { $Project = Get-ScenarioValue "scenarioProject" }
@@ -57,7 +49,7 @@ Write-Host "Scenario: $Scenario" -ForegroundColor Cyan
 Push-Location $repoRoot
 try {
     if ($Scenario -eq "greenfield") {
-        & (Join-Path $PSScriptRoot "generate-project.ps1")
+        & (Join-Path $PSScriptRoot "generate-project.ps1") -ConfigFile $ProjectConfig
     } else {
         if (-not $Project) {
             Write-Error "Scenario '$Scenario' needs -Project <folder in projects/> (or scenarioProject in $ScenarioConfig)."
@@ -65,7 +57,7 @@ try {
         if ($RepoUrl) {
             & (Join-Path $PSScriptRoot "fetch-project.ps1") -RepoUrl $RepoUrl -Project $Project -ScenarioConfig $ScenarioConfig -Fresh:$Fresh
         }
-        $attachArgs = @{ Project = $Project; Scenario = $Scenario; NewTask = $NewTask }
+        $attachArgs = @{ Project = $Project; Scenario = $Scenario; ProjectConfig = $ProjectConfig; ScenarioConfig = $ScenarioConfig; NewTask = $NewTask }
         if ($BaseBranch) { $attachArgs.BaseBranch = $BaseBranch }
         & (Join-Path $PSScriptRoot "attach-project.ps1") @attachArgs
     }

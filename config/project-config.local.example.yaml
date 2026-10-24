@@ -1,0 +1,22 @@
+# Copy this file to config/project-config.local.yaml and adjust paths/URLs once.
+# project-config.local.yaml is ignored by Git and is loaded over project-config.yaml.
+
+maven:
+  settingsFile: 'C:\Users\<user>\.m2\settings.xml'
+  jdksDir: 'C:\Users\<user>\Desktop\java-tools\java'
+  mavenVersion: 3.9.16
+  mavensDir: 'C:\Users\<user>\Desktop\java-tools'
+
+sdlc:
+  enableSonarQube: true
+  sonarHostUrl: "http://localhost:9000"
+  enableXray: true
+  xrayUrl: "https://<corporate-xray-host>:9999"
+  xrayWatches: "XrayWatch"
+  xrayInsecureTls: true
+
+# Choose the dependency database needed by the project under test.
+# none | mongodb | postgresql | db2 | h2
+databaseType: mongodb
+databaseHost: localhost
+databasePort: 27017

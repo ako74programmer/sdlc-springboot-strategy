@@ -1,5 +1,5 @@
 # Starts the whole local SDLC environment with one command:
-#   MongoDB -> SonarQube -> auth token (-> optionally copied into a generated project)
+#   Database -> SonarQube -> auth token (-> optionally copied into a generated project)
 #
 # Usage:
 #   .\scripts\env-up.ps1
@@ -24,25 +24,16 @@ param(
 $ErrorActionPreference = "Stop"
 $scriptDir = $PSScriptRoot
 $repoRoot = Split-Path $scriptDir -Parent
+. (Join-Path $repoRoot "scripts\config-loader.ps1")
 $tokenFile = Join-Path $repoRoot "sonar-token.txt"
 
-function Get-ConfigValue([string]$key, [string]$default = "") {
-    $cfgFile = Join-Path $repoRoot "config\project-config.yaml"
-    if (Test-Path $cfgFile) {
-        foreach ($line in Get-Content $cfgFile) {
-            if ($line -match "^\s*$([regex]::Escape($key))\s*:\s*(.*)$") {
-                return ($matches[1] -split '#')[0].Trim().Trim('"').Trim("'")
-            }
-        }
-    }
-    return $default
-}
-
-$cfgDb = Get-ConfigValue "databaseType" "mongodb"
+$projectConfig = Read-FactoryConfig (Join-Path $repoRoot "config\project-config.yaml")
+$projectValues = $projectConfig.Values
+$cfgDb = Get-ConfigValue $projectValues "databaseType" "none"
 if (-not $Database) { $Database = $cfgDb }
 if (-not $DbPort -or $DbPort -eq 0) {
     if ($Database.ToLower() -eq $cfgDb.ToLower()) {
-        $cfgPort = Get-ConfigValue "databasePort" ""
+        $cfgPort = Get-ConfigValue $projectValues "databasePort" ""
         if ($cfgPort -match '^\d+$') { $DbPort = [int]$cfgPort }
     }
     if (-not $DbPort -or $DbPort -eq 0) {
@@ -56,10 +47,8 @@ if (-not $DbPort -or $DbPort -eq 0) {
         }
     }
 }
-if (-not $DbHost) { $DbHost = Get-ConfigValue "databaseHost" "localhost" }
+if (-not $DbHost) { $DbHost = Get-ConfigValue $projectValues "databaseHost" "localhost" }
 if ($SkipMongo) { $SkipDb = $true }
-
-
 function Test-TcpPort {
     param([string]$ComputerName = "localhost", [int]$Port)
     try {
@@ -147,12 +136,11 @@ if ($SkipDb -or $dbType -in @("none", "", "h2")) {
             Write-Host "    launching $customStart..." -ForegroundColor Gray
             & $customStart
         } else {
-            Write-Host "    WARNING: $Database is not listening on ${DbHost}:${DbPort}." -ForegroundColor DarkYellow
-            Write-Host "    Start your $Database instance (service or container) on port $DbPort before running database tests." -ForegroundColor Gray
+            Write-Error "$Database is not listening on ${DbHost}:${DbPort}. Start the database before running this scenario."
         }
     }
 } else {
-    Write-Host "    Unknown database type '$Database' - skipping" -ForegroundColor DarkYellow
+    Write-Error "Unknown database type '$Database'. Use none, mongodb, postgresql, db2 or h2."
 }
 
 # ---------------------------------------------------------------

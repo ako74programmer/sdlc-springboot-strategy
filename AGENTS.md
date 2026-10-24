@@ -15,10 +15,10 @@ Repozytorium jest generatorem projektów Spring Boot (Initializr) z wbudowanym p
 
 | Element | Rola |
 |---|---|
-| `config/project-config.yaml` | Jedyne źródło konfiguracji generatora i bramek |
+| `config/project-config.yaml` | Neutralna konfiguracja generatora i bramek; opcjonalny `config/project-config.local.yaml` jest ignorowany przez Git i zawiera ścieżki stanowiska oraz adresy korporacyjne |
 | `scripts/generate-project.ps1` | Generuje projekt do `projects/<artifactId>` (`projectsDir`), znacznik `.sdlc-generated`; katalog bez znacznika nadpisuje tylko z `-Force`. Wstrzykuje pom, narzędzia, agentów, hook, `.gitignore`. Od 2026-10-12 robi `git init`: commit na `main`, gałąź robocza `sdlc-work`; odmawia regeneracji, gdy jest praca w gicie (bez `-Force`) |
 | `scripts/fetch-project.ps1` | Brownfield odpowiednik generatora: `git clone` do `projects/<Project>`; nie rusza istniejącego folderu, `-Fresh` kasuje go po potwierdzeniu. Gałąź bazowa `sdlc-work` (od 2026-10-22): `-BaseBranch` w `start-scenario.ps1`/`attach-project.ps1` albo `scenarioBaseBranch` (zakłada `sdlc-work` z `origin/<gałąź>`, bez śledzenia; istniejącej `sdlc-work` z własnymi commitami na innej bazie nie nadpisuje; zapis `baseBranch` w `sdlc-settings.json`) |
-| `scripts/env-up.ps1` | Podnosi MongoDB (27017) i SonarQube (9000), tworzy token Sonara, kopiuje do projektu |
+| `scripts/env-up.ps1` | Parametryzowalnie obsługuje bazę (MongoDB/PostgreSQL/DB2/none) i SonarQube, tworzy token Sonara, kopiuje go do projektu |
 | `templates/greenfield/sdlc.ps1` | Lokalny pipeline bramek, kopiowany jako `tools/sdlc.ps1`; zapisuje `sdlc-report.json` |
 | `templates/greenfield/jfrog-scan.ps1` | Bramka Xray, kopiowana jako `tools/jfrog-scan.ps1` |
 | `templates/shared/copilot-quota.ps1` | Koszt zadania (kredyty premium Copilota, start/koniec), kopiowany jako `tools/copilot-quota.ps1`; stan w `sdlc-cost.json`; różnica obejmuje całe konto |

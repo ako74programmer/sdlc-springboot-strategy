@@ -7,6 +7,8 @@ projects/
 # Sensitive tokens & local runtime files
 sonar-token.txt
 *.token
+config/project-config.local.yaml
+config/scenario-config.local.yaml
 
 # Temporary archives & build artifacts
 *.zip
