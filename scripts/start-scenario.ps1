@@ -11,7 +11,7 @@
 #   .\scripts\start-scenario.ps1 -Fresh                            (delete the project folder and clone again, asks first)
 #   .\scripts\start-scenario.ps1 -NewTask                          (next task on an attached project: archive old task files, refresh tools)
 #   .\scripts\start-scenario.ps1 -Scenario remediation -NewTask   (fix what the last review found; the review report is archived and becomes the input)
-#   .\scripts\start-scenario.ps1 -Scenario vulnquick -NewTask     (quick Xray fix from a Jira filter: version numbers in pom.xml only)
+#   .\scripts\start-scenario.ps1 -Scenario vulnfix -VulnFixMode quick -NewTask (explicit version-only compatibility mode)
 #   .\scripts\start-scenario.ps1 -BaseBranch feature              (sdlc-work starts from origin/feature instead of the checked-out branch)
 # ==============================================================================
 Param(
@@ -21,6 +21,7 @@ Param(
     [string]$BaseBranch,
     [string]$ScenarioConfig = "config/scenario-config.yaml",
     [string]$ProjectConfig = "config/project-config.yaml",
+    [ValidateSet("auto", "full", "quick")][string]$VulnFixMode = "auto",
     [switch]$Fresh,
     [switch]$NewTask
 )
@@ -30,11 +31,13 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $repoRoot "scripts\config-loader.ps1")
 $scenarioConfigData = Read-FactoryConfig (Join-Path $repoRoot $ScenarioConfig)
 $scenarioValues = $scenarioConfigData.Values
-$scenarios = @("greenfield", "buildfix", "bugfix", "sonarfix", "vulnfix", "vulnquick", "refactor", "feature", "tests", "migration", "review", "remediation")
+$scenarios = @("greenfield", "buildfix", "bugfix", "sonarfix", "vulnfix", "refactor", "feature", "tests", "migration", "review", "remediation")
 
 function Get-ScenarioValue([string]$key) { return Get-ConfigValue $scenarioValues $key "" }
 if (-not $Scenario) { $Scenario = Get-ScenarioValue "scenarioType" }
 if (-not $Scenario) { $Scenario = "greenfield" }
+if ($Scenario -eq "vulnquick") { $Scenario = "vulnfix"; $VulnFixMode = "quick" }
+if ($Scenario -eq "vulnfix" -and $VulnFixMode -eq "auto" -and (Get-ScenarioValue "vulnfixMode") -in @("auto", "quick", "full")) { $VulnFixMode = Get-ScenarioValue "vulnfixMode" }
 if (-not $Project) { $Project = Get-ScenarioValue "scenarioProject" }
 if (-not $RepoUrl) { $RepoUrl = Get-ScenarioValue "scenarioRepoUrl" }
 if (-not $Project -and $RepoUrl) { $Project = [IO.Path]::GetFileNameWithoutExtension($RepoUrl.TrimEnd('/')) }
@@ -44,6 +47,7 @@ if ($scenarios -notcontains $Scenario) {
 }
 
 Write-Host "Scenario: $Scenario" -ForegroundColor Cyan
+if ($Scenario -eq "vulnfix") { Write-Host "VulnFix mode: $VulnFixMode (orchestrator may choose after review when auto)" -ForegroundColor Gray }
 
 # Both scripts resolve their paths relative to the repository root
 Push-Location $repoRoot
@@ -57,7 +61,7 @@ try {
         if ($RepoUrl) {
             & (Join-Path $PSScriptRoot "fetch-project.ps1") -RepoUrl $RepoUrl -Project $Project -ScenarioConfig $ScenarioConfig -Fresh:$Fresh
         }
-        $attachArgs = @{ Project = $Project; Scenario = $Scenario; ProjectConfig = $ProjectConfig; ScenarioConfig = $ScenarioConfig; NewTask = $NewTask }
+        $attachArgs = @{ Project = $Project; Scenario = $Scenario; ProjectConfig = $ProjectConfig; ScenarioConfig = $ScenarioConfig; VulnFixMode = $VulnFixMode; NewTask = $NewTask }
         if ($BaseBranch) { $attachArgs.BaseBranch = $BaseBranch }
         & (Join-Path $PSScriptRoot "attach-project.ps1") @attachArgs
     }

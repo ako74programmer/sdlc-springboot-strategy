@@ -1,59 +1,73 @@
 ---
 name: vulnfix
-description: "Scenario vulnfix for the brownfield sdlc-orchestrator: vulnerable dependencies (Xray findings, CVE ids, corporate CYB tasks); the project moves to the target versions and ends clean - Xray 0, SonarQube 0, all tests green. Definition of done, flow, rules, plan checks, verification and report."
+description: "Scenario vulnfix for the brownfield sdlc-orchestrator: fix vulnerable dependencies and only the code/tests required by that fix. The orchestrator may choose quick or full execution after review; SonarQube and unrelated cleanup are separate scenarios."
 ---
 
 # Scenario `vulnfix`
 
-Signals: vulnerable dependencies - Xray findings, CVE ids, corporate vulnerability tasks (e.g. `CYB-...` from the corporate scan). The project ends clean: target platform versions, Xray 0, SonarQube 0, all tests green.
+`vulnfix` is the user-facing scenario for vulnerable dependencies. It is not a general project cleanup and it does not silently include SonarQube remediation, coverage work, refactoring or migration.
 
 ## Definition of Done
 
-`sdlc-report.json` (written after your last change) has `"status": "PASSED"`, every gate is `PASS` or `SKIPPED`, and - when a baseline exists - `Regression` and `TestIntegrity` are `PASS`. Also `XrayScan` (`metrics.xray.findings` is 0), `VulnGuard`, `SonarQube`, `SonarQube-QualityGate` and `SonarQube-Issues` (0 open issues) are `PASS`, and the report comes from a `-CiParity` run.
+`sdlc-report.json` written after the last change has `status: PASSED`, `VulnGuard = PASS`, `XrayScan` ran against the final artifact, and `Regression` and `TestIntegrity` are `PASS` when a baseline exists. `Compilation` and `Tests` are `PASS`. The report lists every baseline Xray component before -> after, the fix path and any item that still requires a follow-up task or user decision.
 
-**XrayScan is mandatory.** When `jfrog-xray.properties` exists, `XrayScan` must be `PASS`: corporate CI/CD blocks on it. Vulnerable dependencies are part of every task, also when they were already in the baseline - never "out of scope", never a separate task, never a question for the user. The final verification runs `.\tools\sdlc.ps1` without any `-Skip*` flag. Ask the user only when a finding still has no fix after upgrading to the newest patch version and re-scanning.
+In `quick` mode only build files may change. In `full` mode production code and tests may change only when required by the dependency update. Neither mode fixes unrelated SonarQube issues or increases coverage as a separate goal.
 
 ## Start
 
-- `sdlc-settings.json` `scenario` must be `vulnfix` (it enables the `VulnGuard` and `SonarQube-Issues` gates); if not, tell the user to re-run `attach-project.ps1 -Scenario vulnfix`. `migrationBootVersion` and `migrationJavaVersion` must be set there (they are the target versions, when set), and `javaHome` must point to a JDK of `migrationJavaVersion`.
-- Limits: `sonarMaxOpenIssues` must be `0`; if not, tell the user to re-run `attach-project.ps1 -Scenario vulnfix`.
-- Environment: SonarQube and the project database (if configured) must run before any gate (`..\..\scripts\env-up.ps1`). SonarQube is part of the goal: if it is unavailable, stop and ask the user to start it (`sdlc.ps1` refuses a vulnfix baseline without SonarQube data and never reports PASSED without it).
-- Baseline: `.\tools\sdlc.ps1 -Baseline`. It is recorded only when the Xray scan and the SonarQube analysis really ran (`sdlc.ps1` refuses it otherwise and says why): no jar because the build does not compile is a `buildfix` first; a missing `jfrog-xray.properties`, `jf`, token, Xray or SonarQube server is the user's environment - stop and tell the user.
+- `sdlc-settings.json` `scenario` must be `vulnfix`. If it is not, re-run `attach-project.ps1 -Scenario vulnfix`.
+- Read `sdlc-settings.json.vulnfixMode`: `auto`, `quick` or `full`. `auto` is the default and is resolved after the initial analysis.
+- Run a baseline with a real Xray scan: `.	ools\sdlc.ps1 -Baseline -SkipSonar`. A missing Xray configuration, token, client or server is an environment blocker; do not guess and do not report success.
+- SonarQube is not a vulnfix gate. If the user also wants SonarQube issues fixed, stop this task and propose a separate `sonarfix` task.
+
+## Mode selection
+
+Use `auto` unless the user explicitly constrains the scope.
+
+Choose `quick` when the evidence shows that the fix is limited to `pom.xml` and/or `.mvn/`, compilation and tests pass, and no API or configuration migration is needed. The quick mode is equivalent to the former `vulnquick` behavior, but it is an execution mode, not a user-facing scenario.
+
+Choose `full` when the dependency update requires production-code changes, test changes, API adaptation, configuration changes, a Spring Boot/JDK migration, or when the quick attempt fails. The orchestrator must record the decision and reason in `task.md` before delegating changes.
+
+If the user explicitly says “only update versions in pom.xml” or “do not touch code/tests”, force `quick`; if that cannot satisfy the vulnerability fix, stop with a precise report instead of expanding the scope.
 
 ## Flow
 
-`analyst` (target versions, Xray findings by component with origin and fix path, breaking changes of the target versions, SonarQube issues by rule, missing tests) -> user decisions (only behaviour changes and findings without a fix) -> `planner` (`plan.md`, batches: build file -> production code -> tests -> SonarQube issues) -> `developer` (`pom.xml` + `src/main`) -> `test-engineer` (adapt moved APIs, add missing tests) -> `quality-fixer` (SonarQube issues by rule, remaining Xray) -> `security-reviewer` (when security configuration, filters or authentication changed) -> final verify with `-CiParity`
+1. `analyst`: inspect the baseline Xray findings, dependency tree, current versions and possible fix paths. In `auto`, classify the work as quick or full. Do not fix anything.
+2. `planner` (full only): create `plan.md` with build-file work first, followed by only the production and test changes required by the upgrade.
+3. `developer`: update `pom.xml`/`.mvn/` and, in full mode, adapt production code required by the new versions.
+4. `test-engineer` (full only): adapt tests to moved APIs or add tests needed to prove the upgrade; do not broaden the task into coverage remediation.
+5. `quality-fixer` is not used for unrelated SonarQube findings. It may be used only for a defect directly introduced by the dependency upgrade.
+6. Run `.	ools\sdlc.ps1 -SkipSonar` after each meaningful batch and finish with the Xray scan and the scenario-appropriate verification.
 
 ## Rules
 
-- the focus is vulnerable dependencies, but the project ends clean: every gate green, Xray 0, SonarQube 0 open issues, all tests green and not fewer than in the baseline. Defects and gaps found on the way (a failing build, missing tests such as a test that starts the application context, SonarQube issues) are fixed in this task too;
-- the source of truth for vulnerabilities is the Xray scan of `tools\sdlc.ps1` (corporate Xray, `jfrog-xray.properties`): `sdlc-baseline.json` `xrayFindings` at the start, `XrayScan` errors and `target/xray-findings.json` now. The goal is zero findings - every vulnerable component, whatever its severity, also when the task names only some of them;
-- target versions: when `sdlc-settings.json` has `migrationBootVersion` / `migrationJavaVersion`, the parent and the Java version move to exactly these values, without asking (`VulnGuard` fails until `pom.xml` declares them). Code and tests are adapted as in `migration` (moved APIs, renamed properties; assertions and expected values stay); an unavoidable behaviour change is a question for the user;
-- when the task lists CVE ids or corporate tasks, `analyst` maps each one to a finding of the baseline scan. One that the scan does not show (e.g. found only in the container image) is listed in the report as "not in the scanned jar" - never guessed or fixed blindly;
-- fix order per remaining component, after the target parent: a Boot-managed version property (`<tomcat.version>`, `<jackson-2-bom.version>`, `<jackson-bom.version>` ...) with a one-line comment naming the CVE; then the explicit version of a direct dependency; a component embedded in another jar (shaded or bundled - `dependency:tree` does not show it) is fixed by a version of the containing library that bundles a fixed copy. Remove an existing version override when the target parent already manages that version or a newer one. Never a duplicate dependency, an exclusion that removes a needed library, or an Xray ignore rule;
-- "no fix available" holds only for the scanned version: upgrade to the newest patch of the line and re-scan first. Only a finding still there with empty `fixedVersions`, or an embedded copy without a resolvable newer containing release, goes to the user - with the evidence;
-- SonarQube issues follow the `sonarfix` rules (fix code, never silence it, behaviour stays the same; a fix that can change behaviour is a user decision, asked together with the other decisions in one list);
-- run `.\tools\sdlc.ps1` after the build-file batch, after the code and test batches and after every 2-3 SonarQube batches; the fix loop limits count those runs.
+- The source of truth is the corporate Xray scan of the built artifact, not an unverified pasted report. Map each CVE or corporate task to a scanned component, or report `not in the scanned jar`.
+- Update only dependencies and the code/tests necessary for the vulnerability fix. Do not repair pre-existing SonarQube issues, add unrelated tests, refactor unrelated code, or migrate the platform unless the dependency fix requires it.
+- Never add an Xray ignore rule, suppress a finding, weaken a test, remove a needed dependency or create a duplicate dependency.
+- Upgrade to the newest resolvable patch version of the relevant line and re-scan before declaring that no fix exists. Embedded copies require an upgrade of their containing library.
+- In quick mode, any changed file outside `pom.xml` and `.mvn/` is a failure and must be reverted or the task must be explicitly restarted in full mode.
+- In full mode, every production/test change must cite the upgraded component or API in `plan.md` and the final report.
+- An unrelated red SonarQube gate is a follow-up `sonarfix`, not a reason to expand this task.
 
-## Plan check
+## Plan check (full mode)
 
-Review `plan.md` yourself before `developer` and send it back to `planner` when any check fails:
-- `pom.xml` tasks set the parent to `migrationBootVersion` and Java to `migrationJavaVersion` (when set) first;
-- every component of the baseline `xrayFindings` has a task with a target version proven resolvable (`dependency:get`), or an open question for the user; every CVE or corporate task from `task.md` is mapped to a finding, or marked "not in the scanned jar";
-- every breaking change of the target versions from `analysis.md` has a task; test tasks only adapt moved APIs or add missing tests, none changes an assertion or expected value;
-- every open SonarQube issue from the baseline is in exactly one batch, and nothing that changes behaviour is planned without a user decision;
-- no task adds a suppression, an exclusion, an Xray ignore rule or a weaker test.
+- Every baseline Xray component has one fix path and target, or an evidence-based user decision.
+- The plan separates build-file changes from API adaptation and test adaptation.
+- No task changes expected business behavior without a user decision.
+- No task includes general SonarQube cleanup, coverage targets or unrelated refactoring.
 
 ## Verify
 
-Run `.\tools\sdlc.ps1` yourself. If it fails, delegate to `quality-fixer` with the failing gate and its `errors[]`, then verify again. The final verify is `.\tools\sdlc.ps1 -CiParity`: like CI it starts from an empty local Maven repository (slow), because some plugin conflicts appear only while downloading.
+Run `.	ools\sdlc.ps1 -SkipSonar` yourself. For full mode, also run the project’s required parity/build verification after the dependency adaptation. Verify `sdlc-report.json` and `sdlc-report.json -CheckReport` before reporting success.
 
 ## Report
 
-- scenario and what was wrong (one or two sentences); the versions before -> after (platform, Java), every component baseline -> now (version before -> after, its CVEs, the fix path: parent, property, direct version or containing library), each production and test change with its reason, the CVEs or corporate tasks from `task.md` with their status (fixed / not in the scanned jar / user decision), Xray findings and SonarQube open issues baseline -> now, tests and coverage baseline -> now and the user decisions
-- files changed (from `metrics.diff.changed` in the report)
-- the final gate table, tests and coverage with `delta` against the baseline
-- `warnings` from the report (DiffGuard, pom.xml changes) and anything skipped
+- selected mode (`quick`/`full`) and the evidence for the choice;
+- vulnerability/CVE/task mapping and component versions before -> after;
+- files changed and why each code/test change was required;
+- Xray findings before -> after and unresolved findings with evidence;
+- compilation, tests, regression, test integrity and VulnGuard results;
+- explicit follow-ups: `sonarfix`, `tests`, `migration`, `refactor`, `remediation` or user decision.
 
 # Rules for delegates
 
@@ -61,48 +75,20 @@ The orchestrator gives each delegate this file; each one follows only its own se
 
 ## For `analyst`
 
-**Scenario `vulnfix` only** - the project must end clean (Xray 0, SonarQube 0, all tests green). Sections 3-5 become:
-    - **Target versions** - `migrationBootVersion` / `migrationJavaVersion` from `sdlc-settings.json` (when set) against `pom.xml`. When they differ, add the migration inventory below for that move: explicit versions blocking the new BOM, company libraries, breaking changes with `file:line`, renamed properties, test infrastructure;
-    - **Findings** - from `sdlc-baseline.json` `xrayFindings` (and `target/xray-findings.json`, `target/xray-report.json` for details): one row per component - `group:artifact:version`, its CVEs, the highest Xray severity, `fixedVersions`;
-    - **Origin** - for each component how it gets into the jar: `mvn dependency:tree "-Dincludes=<group>:<artifact>"` shows a direct dependency, a transitive one (through which artifact) or a version managed by the Spring Boot BOM (which property, e.g. `jackson-2-bom.version`); when `dependency:tree` does not show it, it is embedded in another jar - find which one with `jar tf` on the jars in `~/.m2` (`META-INF/maven/<group>/<artifact>/`) and name the containing library;
-    - **Fix path and target** - per component, judged against the BOM of the target parent (read `spring-boot-dependencies-<target>.pom`): fixed by the target parent, a Boot-managed version property, the explicit version of a direct dependency, a version of the containing library that bundles a fixed copy. The target is the newest patch of the same line that is >= every `fixedVersions` entry of that line, proven with `dependency:get`; components that share a fix path are one group. List existing version overrides in `pom.xml` that the target parent makes unnecessary (it manages the same or a newer version);
-    - **SonarQube** - open issues of the baseline grouped by rule as in the SonarQube grouping below, with the groups whose fix can change behaviour;
-    - **Missing tests** - gaps that hide the risk of the upgrade: no test that starts the application context (`@SpringBootTest` with external systems mocked), untested configuration classes the new versions touch (security, serialization, HTTP clients, caches);
-    - **Task mapping** - when `task.md` lists CVE ids or corporate tasks: each one -> its component, or "not in the scanned jar" (e.g. only in the container image) - never invented;
-    - **Decisions for the user** - only unavoidable behaviour changes, SonarQube fixes that can change behaviour, components without a fixed version even on the newest patch, embedded copies without a resolvable newer containing release. Moving to the target versions and patch or minor upgrades of other libraries are not questions.
-    Test count and coverage from `sdlc-baseline.json` stay the reference: the change must not lose a test.
-
-Migration inventory (when the target versions differ from `pom.xml`):
-
-**Scenario `migration` only** - target versions from `sdlc-settings.json` (`migrationBootVersion`, `migrationJavaVersion`); a table of every dependency and plugin with an explicit version (current -> needed, managed by the new BOM yes/no, company library yes/no); known breaking changes that hit this code base with `file:line` (moved packages, removed APIs, renamed properties, JSON library change, persistence provider, security configuration, test annotations); annotation processors; test infrastructure that the upgrade can change silently (in-memory database version, contract-test generators that skip up-to-date tests, test client JSON mappers); open decisions for the user (company libraries without a target-platform release, unavoidable behaviour changes). Do not list SonarQube rules that the new Java level activates on untouched code as work items - they belong to a later `sonarfix` task.
-
-SonarQube grouping:
-
-**Scenario `sonarfix` only** - open issues from `sdlc-report.json` (`SonarQube-Issues` errors) grouped by rule: count, severity/type, files, and for each rule the planned fix and its risk. Mark every group whose fix can change behaviour: names that reach external systems by reflection or serialization (check how the library maps them - annotation name or Java field name; Lombok builder/getter names change with the field name), time zones and clocks, null handling, public API signatures, request mappings, test restructuring (merge/split). Those groups go to the list of decisions for the user. Real false positives are listed separately with the reason.
-
-## For `developer`
-
-- In `vulnfix` the same rules apply to the build-file and production-code batches of `plan.md`: parent and Java move to `migrationBootVersion` / `migrationJavaVersion`, then version properties for Xray findings with a comment naming the CVE. SonarQube batches belong to `quality-fixer`.
-- You own `pom.xml` and `src/main`. Follow the order in `plan.md`: build file first, then compile errors, then configuration properties.
-- Remove explicit version pins that the new BOM manages; keep a pin only with a comment saying why (CVE, missing release).
-- Replace removed or moved APIs with their documented successors; keep behaviour identical. If identical behaviour is impossible, stop and report.
-- Do not touch `src/test`: `test-engineer` adapts tests in the next step. Verify with `.\tools\sdlc.ps1 -SkipSonar -SkipXray`; failing tests caused by moved test APIs are expected at this point and must be listed in your report.
+Read-only. Use the baseline Xray data, `dependency:tree`, `pom.xml` and the task text. Produce the component/finding table, origin, target version, fix path, expected API/configuration impact and a quick/full recommendation. Do not edit `pom.xml`, code or tests.
 
 ## For `planner`
 
-- the input is `analysis.md` (target versions, Xray components with fix paths, breaking changes, SonarQube issues by rule, missing tests) and the decisions in `task.md`. Batches in this order: build file (parent = `migrationBootVersion`, Java = `migrationJavaVersion`, then version properties with a CVE comment, direct versions, containing libraries; remove overrides the target parent makes unnecessary) -> production code for breaking changes -> tests (adapt moved APIs; add the missing tests from `analysis.md`) -> SonarQube issues by rule (one rule or a few small rules per batch, from mechanical to risky fixes). Each task names its files, delegate (`developer`, `test-engineer`, `quality-fixer`) and proof (gate, re-scan, test). Every Xray component and every SonarQube issue of the baseline is in exactly one task or marked as a user decision.
+Full mode only. Create a minimal plan for the dependency fix: build files first, then only the production and test adaptations proven necessary. Mark unrelated findings as follow-up scenarios; do not turn them into work items for this task.
 
-## For `quality-fixer`
+## For `developer`
 
-- Work only on the batch the orchestrator gives you (`plan.md`) and mark its tasks `[x]`. Xray tasks follow `XrayScan` above (property override with a comment naming the CVE, direct version, containing library; never a duplicate dependency, an exclusion of a needed library or an ignore rule). SonarQube batches follow `SonarQube-Issues (sonarfix scenario)` - the gate requires 0 open issues here too.
-- Do not change the parent or Java version away from `migrationBootVersion` / `migrationJavaVersion`; `VulnGuard` fails then.
-- Prove an Xray task with `.\tools\sdlc.ps1 -SkipSonar` (the component is gone from `target/xray-findings.json`) and a SonarQube batch with `mvn test`. If a new version breaks compilation or a test, report the error with the version to the orchestrator - production code goes to `developer`, tests to `test-engineer`.
-- Report per component: version before -> after, the CVEs that disappeared, what is still open.
-
-(`XrayScan` and `SonarQube-Issues` are the gate strategies in your agent file.)
+Apply only the plan’s dependency and required production-code changes. Preserve behavior. Do not touch tests unless the plan explicitly assigns a production/API adaptation that requires a later test change.
 
 ## For `test-engineer`
 
-- Adapt tests to moved APIs only (imports, annotations such as `@MockBean` -> `@MockitoBean`, new test auto-configuration packages, mock and context setup): never change assertions, expected values, test data or the number of cases.
-- Add the missing tests named in `plan.md` (e.g. a `@SpringBootTest` that starts the application context with external systems such as LDAP, other HTTP services or a cluster mocked or disabled by test properties; never a real company system). New tests follow the project's test style.
-- Test resources may get test-only properties; never write a secret value, use `${ENV_NAME}` (the same name as in `src/main`).
+Full mode only. Adapt tests to the upgraded API/configuration and add only tests needed to prove the dependency fix. Never reduce assertions, disable tests or change expected business behavior.
+
+## For `quality-fixer`
+
+Only fix a build or test defect directly caused by the dependency update. Do not fix pre-existing SonarQube findings in a vulnfix task; those belong to `sonarfix`.

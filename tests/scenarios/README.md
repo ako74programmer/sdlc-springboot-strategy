@@ -10,7 +10,7 @@ Poligon do sprawdzania agentów i bramek brownfield przed bitwą. Każdy scenari
 | `b2-failing-test` | `bugfix` | błąd wykrywany przez istniejący, czerwony test | nie |
 | `b3-bug-report` | `bugfix` | błąd opisany słownie, bez testu | nie |
 | `b6-red-sonar` | `sonarfix` | 7 problemów Sonara w jednej klasie | tak |
-| `b7-vulnquick` | `vulnquick` | podatne zależności (np. commons-text) do szybkiej aktualizacji w pom.xml | nie |
+| `b7-vulnquick` | `vulnfix` / `quick` | podatne zależności (np. commons-text) do szybkiej aktualizacji w pom.xml | nie |
 | `c4-boot3-to-4` | `migration` | migracja ze Spring Boot 3.4/Java 21 na Boot 4.1.1/Java 25 (pom.xml + MockitoBean) | nie |
 | `c2-feature-discount` | `feature` | rozbudowa serwisu o nowy endpoint kalkulacji rabatów (POST /discount) | nie |
 

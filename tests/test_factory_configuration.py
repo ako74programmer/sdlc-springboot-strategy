@@ -52,6 +52,7 @@ def test_scenario_has_no_machine_specific_task():
     assert values["scenarioProject"] == ""
     assert values["scenarioRepoUrl"] == ""
     assert values["scenarioBaseBranch"] == ""
+    assert values["vulnfixMode"] == "auto"
     assert values["diffGuardMode"] == "fail"
 
 
@@ -69,6 +70,18 @@ def test_scripts_use_shared_loader():
         text = (ROOT / relative).read_text(encoding="utf-8")
         assert "config-loader.ps1" in text, relative
         assert "Read-FactoryConfig" in text, relative
+
+
+def test_business_scenario_contract():
+    start = (ROOT / "scripts/start-scenario.ps1").read_text(encoding="utf-8")
+    orchestrator = (ROOT / "templates/brownfield/agents/sdlc-orchestrator.agent.md").read_text(encoding="utf-8")
+    pipeline = (ROOT / "templates/brownfield/sdlc.ps1").read_text(encoding="utf-8")
+    assert '"vulnfix", "refactor"' in start
+    assert '"vulnquick"' not in start.split('$scenarios =', 1)[1].split('\n', 1)[0]
+    assert "vulnfixMode" in start
+    assert "vulnquick` is only a backward-compatible command alias" in orchestrator
+    assert '$sonarClean = ($settings.scenario -in @("sonarfix", "remediation"))' in pipeline
+    assert "$vulnfixQuick" in pipeline
 
 
 if __name__ == "__main__":

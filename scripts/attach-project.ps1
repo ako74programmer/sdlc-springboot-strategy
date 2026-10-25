@@ -16,6 +16,7 @@ Param(
     [string]$Scenario,
     [string]$ScenarioConfig = "config/scenario-config.yaml",
     [string]$ProjectConfig = "config/project-config.yaml",
+    [ValidateSet("auto", "full", "quick")][string]$VulnFixMode = "auto",
     [string]$Branch = "sdlc-work",
     [string]$BaseBranch,
     [string]$MavenSettings = $env:MAVEN_SETTINGS,
@@ -34,6 +35,8 @@ $templates = Join-Path $repoRoot "templates\brownfield"
 $scenarioCfg = (Read-FactoryConfig (Join-Path $repoRoot $ScenarioConfig)).Values
 $projectCfg = (Read-FactoryConfig (Join-Path $repoRoot $ProjectConfig)).Values
 if (-not $Scenario) { $Scenario = $scenarioCfg["scenarioType"] }
+if ($Scenario -eq "vulnquick") { $Scenario = "vulnfix"; $VulnFixMode = "quick" }
+if ($Scenario -eq "vulnfix" -and $VulnFixMode -eq "auto" -and $scenarioCfg["vulnfixMode"] -in @("auto", "quick", "full")) { $VulnFixMode = $scenarioCfg["vulnfixMode"] }
 if (-not $BaseBranch) { $BaseBranch = $scenarioCfg["scenarioBaseBranch"] }
 
 $projectsDir = if ($ProjectsDir) { $ProjectsDir } elseif ($scenarioCfg["projectsDir"]) { $scenarioCfg["projectsDir"] } else { "projects" }
@@ -249,8 +252,8 @@ foreach ($prop in @("java.version", "maven.compiler.release", "maven.compiler.so
     if ($node -and $node.InnerText.Trim()) { $javaDeclared = $node.InnerText.Trim(); break }
 }
 $javaMajor = Get-JavaMajor $javaDeclared
-# A migration (and a vulnfix, which moves to the same targets) builds on the target JDK; a newer JDK also compiles the old release level
-$javaTarget = ($Scenario -in @("migration", "vulnfix") -and $scenarioCfg["migrationJavaVersion"])
+# A migration builds on the target JDK; vulnfix uses the JDK required by the project because it does not imply a platform migration.
+$javaTarget = ($Scenario -eq "migration" -and $scenarioCfg["migrationJavaVersion"])
 if ($javaTarget) {
     $javaMajor = Get-JavaMajor $scenarioCfg["migrationJavaVersion"]
 }
@@ -390,6 +393,7 @@ function Get-CfgNumber([string]$key, $default) {
 # Read by tools/sdlc.ps1 and the orchestrator; the project cannot see config/ of this repository
 $sdlcSettings = [ordered]@{
     scenario              = $Scenario
+    vulnfixMode           = $(if ($Scenario -eq "vulnfix") { $VulnFixMode } else { "" })
     baseBranch            = $(if ($BaseBranch) { $BaseBranch } else { "" })
     mavenSettings         = $(if ($MavenSettings) { (Resolve-Path $MavenSettings).Path } else { "" })
     javaHome              = $javaHome
@@ -399,12 +403,12 @@ $sdlcSettings = [ordered]@{
     diffGuardMaxLines     = Get-CfgNumber "diffGuardMaxLines" 400
     diffGuardMode         = $(if ($scenarioCfg["diffGuardMode"]) { $scenarioCfg["diffGuardMode"] } else { "warn" })
     coverageTolerance     = Get-CfgNumber "coverageTolerance" 0.0
-    sonarMaxOpenIssues    = $(if ($Scenario -in @("sonarfix", "remediation", "vulnfix")) { 0 } else { -1 })
+    sonarMaxOpenIssues    = $(if ($Scenario -in @("sonarfix", "remediation")) { 0 } else { -1 })
     maxFixIterations      = Get-CfgNumber "maxFixIterations" 5
     maxOfficialCiAttempts = Get-CfgNumber "maxOfficialCiAttempts" 2
     sameGateStopAfter     = Get-CfgNumber "sameGateStopAfter" 3
 }
-if ($Scenario -in @("migration", "vulnfix")) {
+if ($Scenario -eq "migration") {
     $sdlcSettings.migrationBootVersion = $scenarioCfg["migrationBootVersion"]
     $sdlcSettings.migrationJavaVersion = $scenarioCfg["migrationJavaVersion"]
 }

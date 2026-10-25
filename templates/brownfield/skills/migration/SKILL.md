@@ -62,7 +62,7 @@ Write in `analysis.md` (in addition to sections 1-6):
 
 ## For `developer`
 
-- In `vulnfix` the same rules apply to the build-file and production-code batches of `plan.md`: parent and Java move to `migrationBootVersion` / `migrationJavaVersion`, then version properties for Xray findings with a comment naming the CVE. SonarQube batches belong to `quality-fixer`.
+- `vulnfix` is a separate dependency-remediation scenario. Do not apply migration rules or move the parent/Java version during migration work unless the user explicitly starts `migration`.
 - You own `pom.xml` and `src/main`. Follow the order in `plan.md`: build file first, then compile errors, then configuration properties.
 - Remove explicit version pins that the new BOM manages; keep a pin only with a comment saying why (CVE, missing release).
 - Replace removed or moved APIs with their documented successors; keep behaviour identical. If identical behaviour is impossible, stop and report.

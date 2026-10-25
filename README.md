@@ -109,13 +109,25 @@ Nie trzeba edytować YAML przed każdym zadaniem. Dla nowego projektu uruchom:
 ```
 Nowy projekt zostanie utworzony w katalogu `projects/springboot-sdlc-demo` (`projectsDir` w `config/scenario-config.yaml`). Generator oznacza swoje projekty plikiem `.sdlc-generated` i nadpisuje tylko takie katalogi; istniejący katalog bez znacznika (np. pobrany kod) wymaga `-Force`.
 
-**Istniejący projekt (brownfield)**: jedno polecenie pobiera repozytorium, podpina narzędzia i tworzy branch roboczy:
+**Istniejący projekt (brownfield)**: jedno polecenie pobiera repozytorium, podpina narzędzia i tworzy branch roboczy. Gdy nie znasz jeszcze zakresu problemu, zacznij od `review`:
 ```powershell
-.\scripts\start-scenario.ps1 -Scenario vulnfix -RepoUrl https://git.example.corp/team/service.git -Project service
+.\scripts\start-scenario.ps1 -Scenario review -RepoUrl https://git.example.corp/team/service.git -Project service
 ```
-Następnie otwórz `projects/service` w VS Code i przekaż zadanie agentowi `sdlc-orchestrator`. Parametry repozytorium i scenariusza są bieżącym wejściem zadania; nie trzeba wpisywać ich do `scenario-config.yaml`.
+Następnie otwórz `projects/service` w VS Code i przekaż zadanie agentowi `sdlc-orchestrator`. Review nie zmienia kodu; tworzy raport i proponuje osobne scenariusze `vulnfix`, `sonarfix`, `tests`, `migration`, `refactor` lub `remediation`. Szczegóły: [review i wybór zakresu](doc/scenarios/05-review-i-wybor-zakresu.md).
 
-**Brownfield - bramki porównawcze**: przed pierwszą zmianą `.\tools\sdlc.ps1 -Baseline` (zapis `sdlc-baseline.json`), potem każdy przebieg sprawdza `Regression` (żaden wcześniej zielony test nie pada, pokrycie i liczba problemów Sonara nie gorsze), `TestIntegrity` (brak usuniętych/wyłączonych/osłabionych testów, `NOSONAR`, zmian w `sonar-project.properties`), `DiffGuard` (rozmiar zmiany) i opcjonalnie `ReproTest` (`-ReproTest Klasa#metoda`: test czerwony przed poprawką, zielony po niej). Projekty treningowe: `.\scripts\new-fixture.ps1 -Name b2-failing-test` (lista i instrukcja: [tests/scenarios/README.md](tests/scenarios/README.md)).  
+Jeżeli zakres jest znany, użyj scenariusza biznesowego bez wypełniania YAML:
+```powershell
+# Podatności; domyślnie orchestrator wybiera tryb auto
+.\scripts\start-scenario.ps1 -Scenario vulnfix -Project service
+
+# Wymuś tylko aktualizację plików builda
+.\scripts\start-scenario.ps1 -Scenario vulnfix -VulnFixMode quick -Project service
+
+# Dopuszczaj konieczne zmiany kodu i testów
+.\scripts\start-scenario.ps1 -Scenario vulnfix -VulnFixMode full -Project service
+```
+`vulnquick` pozostaje wyłącznie kompatybilnym aliasem do `vulnfix.quick`; nie jest osobnym scenariuszem biznesowym.
+**Brownfield - bramki porównawcze**: przed pierwszą zmianą `.\tools\sdlc.ps1 -Baseline` (zapis `sdlc-baseline.json`), potem każdy przebieg sprawdza bramki odpowiednie dla wybranego scenariusza. `vulnfix` wymaga realnego Xray i `VulnGuard`; `sonarfix` wymaga analizy SonarQube; `tests` chroni liczbę i jakość testów. Projekty treningowe: `.\scripts\new-fixture.ps1 -Name b2-failing-test` (lista i instrukcja: [tests/scenarios/README.md](tests/scenarios/README.md)).
 Generator automatycznie uruchomi smoke test kompilacji.
 
 **Repozytorium artefaktów (Maven `settings.xml`)**: Maven domyślnie używa `~/.m2/settings.xml`. Jeśli plik leży gdzie indziej, wpisz go raz w `config/project-config.local.yaml`, użyj `-MavenSettings` albo zmiennej `MAVEN_SETTINGS`.

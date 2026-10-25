@@ -1,4 +1,4 @@
-# Adds an older library and override to test vulnquick (only build files changed)
+# Adds an older library and override to test vulnfix quick (only build files changed)
 Param([Parameter(Mandatory = $true)][string]$ProjectPath)
 
 $pomFile = Join-Path $ProjectPath "pom.xml"

@@ -11,8 +11,10 @@ scenarioType: ""
 scenarioProject: ""
 scenarioRepoUrl: ""
 scenarioBaseBranch: ""
+# auto = orchestrator chooses quick/full after review; explicit quick/full is allowed.
+vulnfixMode: auto
 
-# Target versions used by migration and vulnfix scenarios.
+# Target versions used by the migration scenario. vulnfix does not imply a platform migration.
 migrationBootVersion: 4.1.1
 migrationJavaVersion: 25
 

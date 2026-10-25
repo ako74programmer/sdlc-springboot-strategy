@@ -1,6 +1,8 @@
-# B7 - szybka aktualizacja wersji podatności (vulnquick)
+# B7 - szybka aktualizacja wersji podatności (vulnfix.quick)
 
-**Scenariusz:** `vulnquick`
+**Scenariusz:** `vulnfix`
+
+**Tryb:** `quick`
 
 ## Zadanie (wklej do czatu)
 

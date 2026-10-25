@@ -1,6 +1,6 @@
 ---
 name: sdlc-orchestrator
-description: "Use when: a task concerns an existing (downloaded) Spring Boot project - it does not build, has a bug, a failing test, a red SonarQube, vulnerable dependencies (Xray findings; a quick version-only fix of the corporate CYB tasks from a Jira filter), needs a new feature from a Jira/Confluence task, its tests must be migrated or extended, or the findings of a review must be fixed (remediation) - and must end with a green SDLC pipeline without regressions; or it must be reviewed (code or security review of a change or of the whole project, report only, no changes). Delegates to analyst, planner, build-doctor, bug-hunter, developer, test-engineer, security-reviewer and quality-fixer."
+description: "Use when: a task concerns an existing Spring Boot project and needs diagnosis, vulnerability remediation, SonarQube remediation, test/coverage work, migration, refactoring, a feature, or review-only reporting. The orchestrator selects one business scenario, keeps its scope isolated, and ends with evidence in the SDLC report."
 model: ['claude-opus-5.5', 'gpt-6.1-sol', 'claude-opus-5']
 reasoning-effort: high
 tools: [read, search, edit, execute, agent, todo, 'erste-intranet-mcp/*']
@@ -18,7 +18,7 @@ Never read passwords or tokens from `~/.m2/settings.xml`, `jfrog.token`, `sonar-
 
 ## One task = one scenario = one skill
 
-Every task is exactly one scenario. Its rules - definition of done, start checks, flow, scenario rules, plan checks, verification and report - are in `.github/skills/<scenario>/SKILL.md`. Read that one file right after classifying the task and follow it. The skills of other scenarios do not apply to this task; do not read them.
+Every task is exactly one business scenario. Its rules - definition of done, start checks, flow, scenario rules, plan checks, verification and report - are in `.github/skills/<scenario>/SKILL.md`. Read that one file right after classifying the task and follow it. A technical execution mode such as `vulnfix.quick` never changes the scenario or its report contract. The skills of other scenarios do not apply to this task; do not read them.
 
 ## Start
 
@@ -30,16 +30,17 @@ Every task is exactly one scenario. Its rules - definition of done, start checks
    | `buildfix` | does not compile, dependency errors, does not start |
    | `bugfix` | a bug description, a stack trace or a named failing test |
    | `sonarfix` | SonarQube issues / Quality Gate to fix |
-   | `vulnfix` | vulnerable dependencies: Xray findings, CVE ids, corporate vulnerability tasks (e.g. `CYB-...` from the corporate scan). The project ends clean: target platform versions, Xray 0, SonarQube 0, all tests green |
-   | `vulnquick` | the same signals, but the task gives a Jira filter (JQL) or a list of corporate vulnerability tasks and asks only for the version fix: version numbers in the build file, no code, no SonarQube. `sdlc-settings.json` `scenario` = `vulnquick` decides between the two |
+   | `vulnfix` | vulnerable dependencies, CVE ids or corporate vulnerability tasks. Fix only the vulnerabilities and changes required by them; the orchestrator selects `quick` or `full` execution after analysis |
+   | `review` | report only: inspect code, tests, coverage, SonarQube, Xray, toolchain and migration risks; make no code changes |
    | `feature` | a new requirement: endpoint, field, integration, business rule, usually a Jira story |
    | `tests` | work on tests only: add missing tests, raise coverage, migrate the test framework (e.g. Spock/Groovy -> JUnit 5); production code stays as it is |
    | `migration` | move the project to a new platform version: Spring Boot / Spring Framework major, Java version; production code changes only as far as the new versions require |
-   | `review` | review only, nothing is changed: a code review of a change (a merge request, a branch against its base) or a code and security review of the whole project; the result is a report |
    | `remediation` | fix what the last review found: the task refers to the review report or its finding ids (`F01`, `SEC-02`) |
    | `refactor` | clean up legacy code, god classes, duplication or technical debt; zero behavior or API contract change |
 
-   If the message fits several types or none, ask the user once. `sdlc-settings.json` `scenario` is a hint, the task text decides.
+   If the user asks to “review”, “assess” or “prepare a report” without asking for changes, choose `review`. If the user asks to fix several unrelated areas at once, do not combine scenarios: run `review` first and propose separate follow-up tasks. If the message fits several types or none, ask the user once. `sdlc-settings.json` `scenario` is a hint, the task text decides.
+
+   For `vulnfix`, the business scenario is always `vulnfix`; `vulnquick` is only a backward-compatible command alias. The execution mode is `sdlc-settings.json.vulnfixMode` (`auto`, `quick`, `full`) and must not become a second scenario.
 2. **Skill** - read `.github/skills/<scenario>/SKILL.md` and do its `Start` checks (settings, environment, baseline flags).
 3. **Limits** - read `sdlc-settings.json`: `maxFixIterations`, `sameGateStopAfter`, `maxOfficialCiAttempts`. They override any number in this file; a skill may set a lower number for its scenario.
 4. **Environment** - start what the skill needs before any gate (`..\..\scripts\env-up.ps1`).
