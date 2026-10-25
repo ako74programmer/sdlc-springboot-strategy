@@ -153,3 +153,7 @@ Select-String -Path plan.md -Pattern "fixed|user decision|deferred"
 | `SonarQube-Issues: Open SonarQube issues not read` | Sonar nie działa albo konfiguracja projektu przerywa analizę; ta druga to pierwsza partia planu |
 | Test pada z braku zmiennej (np. `DEMO_MONGO_PASSWORD`) | wypełnij `secrets.local.env`; `sdlc-report.json` -> `secretsLoaded` pokazuje wczytane nazwy |
 | Test wymaga VPN (failsafe) | od 2026-10-20 `sdlc.ps1` liczy też failsafe; bez VPN test będzie czerwony - decyzja o teście jest na liście decyzji |
+
+## Start z czatu (od 2026-10-25)
+
+Gdy w projekcie leży jeszcze raport `review` (`task.md` z `Scenario: review`), orchestrator go nie nadpisuje: prosi o `start-scenario.ps1 -Scenario remediation -NewTask` i ponowienie polecenia. Raport `review` numeruje ustalenia `Fxx` (analysis.md) i `SEC-xx` (security-review.md) i każdemu przypisuje typ kolejnego zadania; `remediation` bierze domyślnie CRITICAL/HIGH z typem `remediation` oraz Sonar do 0. Raport bez numerów (stary format) = powtórz `review`.

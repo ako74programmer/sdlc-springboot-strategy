@@ -11,7 +11,7 @@ Signals: move the project to a new platform version - Spring Boot / Spring Frame
 
 `sdlc-report.json` (written after your last change) has `"status": "PASSED"`, every gate is `PASS` or `SKIPPED`, and - when a baseline exists - `Regression` and `TestIntegrity` are `PASS`. Also `MigrationGuard` is `PASS`.
 
-**XrayScan is mandatory.** When `jfrog-xray.properties` exists, `XrayScan` must be `PASS`: corporate CI/CD blocks on it. Vulnerable dependencies are part of every task, also when they were already in the baseline - never "out of scope", never a separate task, never a question for the user. The final verification runs `.\tools\sdlc.ps1` without any `-Skip*` flag. Ask the user only when a finding still has no fix after upgrading to the newest patch version and re-scanning.
+**Xray is a measurement here, not a goal.** `XrayScan` runs and its findings are reported (`gates.XrayScan = FINDINGS`, `metrics.xray.findings`), but this scenario never changes dependency versions to remove them and they do not block `PASSED`. List every finding in the report as a follow-up `vulnfix` task. A scan that could not run (exit code 2: jf, token or server) is an environment problem and stays `FAIL`; never use `-SkipXray` for the final verification.
 
 ## Start
 
@@ -21,7 +21,7 @@ Signals: move the project to a new platform version - Spring Boot / Spring Frame
 
 ## Flow
 
-`analyst` (breaking-change inventory) -> `planner` (`plan.md`, ordered: build file, production code, configuration, tests, Xray) -> `developer` (`pom.xml` + `src/main`) -> `test-engineer` (adapt tests to changed APIs only) -> `security-reviewer` (when security configuration, filters or authentication changed) -> verify
+`analyst` (breaking-change inventory) -> `planner` (`plan.md`, ordered: build file, production code, configuration, tests) -> `developer` (`pom.xml` + `src/main`) -> `test-engineer` (adapt tests to changed APIs only) -> `security-reviewer` (when security configuration, filters or authentication changed) -> verify
 
 ## Rules
 
@@ -35,7 +35,7 @@ Signals: move the project to a new platform version - Spring Boot / Spring Frame
 ## Plan check
 
 Review `plan.md` yourself before `developer` and send it back to `planner` when any check fails:
-- every breaking change from `analysis.md` has a task; the order is build file -> production code -> configuration -> tests -> Xray;
+- every breaking change from `analysis.md` has a task; the order is build file -> production code -> configuration -> tests; Xray findings that remain after the migration are a follow-up `vulnfix`;
 - every company library has a target-platform version proven resolvable, or the plan stops with a question for the user;
 - test tasks only adapt moved APIs; none changes an assertion or expected value.
 

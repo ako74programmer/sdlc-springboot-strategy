@@ -528,10 +528,12 @@ if ((-not $SkipOwasp) -and (Select-String -Path "pom.xml" -Pattern "dependency-c
 # ============================================
 if ((-not $SkipXray) -and (Test-Path "jfrog-xray.properties")) {
     if ($testResult -and $testResult.Success) {
+        $statusBeforeXray = $script:gateStatus.status
         $xrayResult = Execute-Gate -GateName "XrayScan" -Command {
             & "$PSScriptRoot\jfrog-scan.ps1" *>&1
         }
-        if (-not $xrayResult.Success -and (Test-Path "target/xray-findings.json")) {
+        $xrayEnvError = @($script:gateStatus.errors | Where-Object { $_.gate -eq "XrayScan" -and $_.summary -match 'exit code \(2\)' }).Count -gt 0
+        if (-not $xrayResult.Success -and -not $xrayEnvError -and (Test-Path "target/xray-findings.json")) {
             # One error per finding so the quality-fixer agent gets exact component, CVE and fix version
             $script:gateStatus.errors = @($script:gateStatus.errors | Where-Object { $_.gate -ne "XrayScan" })
             foreach ($f in @(Get-Content "target/xray-findings.json" -Raw | ConvertFrom-Json)) {
@@ -542,6 +544,15 @@ if ((-not $SkipXray) -and (Test-Path "jfrog-xray.properties")) {
                     details = "Fixed in: $fix. $($f.summary)"
                 }
             }
+            # Only vulnfix owns vulnerabilities; in other scenarios a completed scan is a measurement and the findings are a follow-up vulnfix task
+            if ($settings.scenario -and $settings.scenario -ne "vulnfix") {
+                $xrayErrors = @($script:gateStatus.errors | Where-Object { $_.gate -eq "XrayScan" })
+                $script:gateStatus.errors = @($script:gateStatus.errors | Where-Object { $_.gate -ne "XrayScan" })
+                $script:gateStatus.gates["XrayScan"] = "FINDINGS"
+                $script:gateStatus.status = $statusBeforeXray
+                $script:gateStatus.warnings += "XrayScan: $($xrayErrors.Count) finding(s) measured, not fixed in scenario '$($settings.scenario)' - follow-up task: vulnfix"
+                Write-Host "[GATE INFO] XrayScan: $($xrayErrors.Count) finding(s) recorded as measurement (follow-up: vulnfix)" -ForegroundColor DarkYellow
+            }
         }
     } else {
         $script:gateStatus.gates["XrayScan"] = "SKIPPED"
@@ -551,7 +562,7 @@ if ((-not $SkipXray) -and (Test-Path "jfrog-xray.properties")) {
 }
 # Findings of a scan that really ran (exit 0 or 1); $null when it was skipped or could not run (exit 2: jf, token, server)
 $xrayFindingList = $null
-if ($script:gateStatus.gates["XrayScan"] -in @("PASS", "FAIL") -and (Test-Path "target/xray-findings.json") -and
+if ($script:gateStatus.gates["XrayScan"] -in @("PASS", "FAIL", "FINDINGS") -and (Test-Path "target/xray-findings.json") -and
     -not @($script:gateStatus.errors | Where-Object { $_.gate -eq "XrayScan" -and $_.summary -match 'exit code \(2\)' }).Count) {
     $xrayFindingList = @(Get-Content "target/xray-findings.json" -Raw | ConvertFrom-Json | ForEach-Object { $_ })
     $script:gateStatus.metrics.xray.findings = $xrayFindingList.Count
@@ -1099,11 +1110,15 @@ if ($Baseline) {
     $platformMigration = ($settings.scenario -eq "migration")
     $vulnfix = ($settings.scenario -eq "vulnfix")
     $sonarfix = $sonarClean
-    # auto selects the safe quick policy only when the completed change is build-only.
-    $vulnfixQuick = ($settings.vulnfixMode -eq "quick")
-    if ($settings.vulnfixMode -eq "auto" -and $null -ne $changed) {
-        $vulnfixQuick = (@($changed.Keys | Where-Object { $_ -notmatch '(^|/)pom\.xml$' -and $_ -notmatch '^\.mvn/' }).Count -eq 0)
+    # The mode is decided before any change: forced by sdlc-settings.json (quick/full) or, in auto, recorded by the
+    # orchestrator in task.md as "VulnFix mode: quick|full". The gate enforces the recorded mode, never infers it from the diff.
+    $vulnfixModeDecided = $null
+    if (Test-Path "task.md") {
+        $m = Select-String -Path "task.md" -Pattern '^\s*VulnFix mode:\s*(quick|full)\b' -ErrorAction SilentlyContinue | Select-Object -Last 1
+        if ($m) { $vulnfixModeDecided = $m.Matches[0].Groups[1].Value.ToLower() }
     }
+    $vulnfixEffectiveMode = if ($settings.vulnfixMode -in @("quick", "full")) { $settings.vulnfixMode } else { $vulnfixModeDecided }
+    $vulnfixQuick = ($vulnfixEffectiveMode -eq "quick")
     if ($migration -or $platformMigration -or $sonarfix -or $vulnfix) {
         $gate = if ($migration) { "TestMigration" } elseif ($platformMigration) { "MigrationGuard" } elseif ($vulnfix) { "VulnGuard" } else { "TestCount" }
         $ok = $true
@@ -1162,15 +1177,29 @@ if ($Baseline) {
                 Add-GateError $gate "Java version is not the target (migrationJavaVersion)" "pom.xml: $javaNow, target: $($settings.migrationJavaVersion)"
             }
         } elseif ($vulnfix) {
-            if ($vulnfix -and $script:gateStatus.gates["XrayScan"] -notin @("PASS", "FAIL")) {
+            if ($vulnfix -and $script:gateStatus.gates["XrayScan"] -notin @("PASS", "FAIL", "FINDINGS")) {
                 $ok = $false
                 $why = if ($SkipXray) { "-SkipXray was used; run .\tools\sdlc.ps1 without it" }
                        elseif ($script:gateStatus.gates["Tests"] -ne "PASS") { "the build or tests failed, so no jar was scanned - fix them first" }
                        else { "see the XrayScan gate" }
                 Add-GateError $gate "Xray scan did not run" "XrayScan: $($script:gateStatus.gates['XrayScan']); $why. vulnfix is proven only by a real scan"
             }
+            if ($vulnfix) {
+                $script:gateStatus.vulnfixModeEffective = $vulnfixEffectiveMode
+                $nonBuild = if ($null -ne $changed) { @($changed.Keys | Where-Object { $_ -notmatch '(^|/)pom\.xml$' -and $_ -notmatch '^\.mvn/' -and $_ -notin @("task.md", "plan.md", "analysis.md") } | Sort-Object) } else { @() }
+                if (-not $vulnfixEffectiveMode) {
+                    $ok = $false
+                    Add-GateError $gate "vulnfix mode not decided" "vulnfixMode is 'auto' and task.md has no line 'VulnFix mode: quick' or 'VulnFix mode: full'. The orchestrator records the mode and its reason before the first change"
+                } elseif ($settings.vulnfixMode -in @("quick", "full") -and $vulnfixModeDecided -and $vulnfixModeDecided -ne $settings.vulnfixMode) {
+                    $ok = $false
+                    Add-GateError $gate "vulnfix mode conflict" "sdlc-settings.json forces '$($settings.vulnfixMode)' but task.md records '$vulnfixModeDecided'. Switching modes needs a restart: start-scenario.ps1 -Scenario vulnfix -VulnFixMode <mode> -NewTask"
+                } elseif ($vulnfixEffectiveMode -eq "full" -and $nonBuild.Count -gt 0 -and -not (Test-Path "plan.md")) {
+                    $ok = $false
+                    Add-GateError $gate "vulnfix full mode without plan.md" "$($nonBuild -join ', ') changed, but full mode needs plan.md that links each code/test change to the upgraded component"
+                }
+            }
             if ($vulnfix -and $vulnfixQuick -and $null -ne $changed) {
-                $notBuild = @($changed.Keys | Where-Object { $_ -notmatch '(^|/)pom\.xml$' -and $_ -notmatch '^\.mvn/' } | Sort-Object)
+                $notBuild = $nonBuild
                 if ($notBuild.Count -gt 0) {
                     $ok = $false
                     Add-GateError $gate "Files other than build files changed in vulnfix quick mode" "$($notBuild -join ', '). Revert them or rerun vulnfix in full mode"

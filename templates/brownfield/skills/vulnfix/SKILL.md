@@ -17,7 +17,7 @@ In `quick` mode only build files may change. In `full` mode production code and 
 
 - `sdlc-settings.json` `scenario` must be `vulnfix`. If it is not, re-run `attach-project.ps1 -Scenario vulnfix`.
 - Read `sdlc-settings.json.vulnfixMode`: `auto`, `quick` or `full`. `auto` is the default and is resolved after the initial analysis.
-- Run a baseline with a real Xray scan: `.	ools\sdlc.ps1 -Baseline -SkipSonar`. A missing Xray configuration, token, client or server is an environment blocker; do not guess and do not report success.
+- Run a baseline with a real Xray scan: `.\tools\sdlc.ps1 -Baseline -SkipSonar`. A missing Xray configuration, token, client or server is an environment blocker; do not guess and do not report success.
 - SonarQube is not a vulnfix gate. If the user also wants SonarQube issues fixed, stop this task and propose a separate `sonarfix` task.
 
 ## Mode selection
@@ -26,9 +26,9 @@ Use `auto` unless the user explicitly constrains the scope.
 
 Choose `quick` when the evidence shows that the fix is limited to `pom.xml` and/or `.mvn/`, compilation and tests pass, and no API or configuration migration is needed. The quick mode is equivalent to the former `vulnquick` behavior, but it is an execution mode, not a user-facing scenario.
 
-Choose `full` when the dependency update requires production-code changes, test changes, API adaptation, configuration changes, a Spring Boot/JDK migration, or when the quick attempt fails. The orchestrator must record the decision and reason in `task.md` before delegating changes.
+Choose `full` when the dependency update requires production-code changes, test changes, API adaptation, configuration changes, a Spring Boot/JDK migration, or when the quick attempt fails. The orchestrator must record the decision before delegating any change, as a line `VulnFix mode: quick` or `VulnFix mode: full` in `task.md`, followed by the reason. `VulnGuard` fails while `vulnfixMode` is `auto` and that line is missing, when it conflicts with a forced `vulnfixMode`, and in full mode when code or tests changed without `plan.md`. Switching from quick to full means a restart (`start-scenario.ps1 -Scenario vulnfix -VulnFixMode full -NewTask`), never an edit of the line after changes started.
 
-If the user explicitly says “only update versions in pom.xml” or “do not touch code/tests”, force `quick`; if that cannot satisfy the vulnerability fix, stop with a precise report instead of expanding the scope.
+If the user explicitly says "only update versions in pom.xml" or "do not touch code/tests", force `quick`; if that cannot satisfy the vulnerability fix, stop with a precise report instead of expanding the scope.
 
 ## Flow
 
@@ -37,7 +37,7 @@ If the user explicitly says “only update versions in pom.xml” or “do not t
 3. `developer`: update `pom.xml`/`.mvn/` and, in full mode, adapt production code required by the new versions.
 4. `test-engineer` (full only): adapt tests to moved APIs or add tests needed to prove the upgrade; do not broaden the task into coverage remediation.
 5. `quality-fixer` is not used for unrelated SonarQube findings. It may be used only for a defect directly introduced by the dependency upgrade.
-6. Run `.	ools\sdlc.ps1 -SkipSonar` after each meaningful batch and finish with the Xray scan and the scenario-appropriate verification.
+6. Run `.\tools\sdlc.ps1 -SkipSonar` after each meaningful batch and finish with the Xray scan and the scenario-appropriate verification.
 
 ## Rules
 
@@ -58,7 +58,7 @@ If the user explicitly says “only update versions in pom.xml” or “do not t
 
 ## Verify
 
-Run `.	ools\sdlc.ps1 -SkipSonar` yourself. For full mode, also run the project’s required parity/build verification after the dependency adaptation. Verify `sdlc-report.json` and `sdlc-report.json -CheckReport` before reporting success.
+Run `.\tools\sdlc.ps1 -SkipSonar` yourself. For full mode, also run the project's required parity/build verification after the dependency adaptation. Verify `sdlc-report.json` and `sdlc-report.json -CheckReport` before reporting success.
 
 ## Report
 
@@ -83,7 +83,7 @@ Full mode only. Create a minimal plan for the dependency fix: build files first,
 
 ## For `developer`
 
-Apply only the plan’s dependency and required production-code changes. Preserve behavior. Do not touch tests unless the plan explicitly assigns a production/API adaptation that requires a later test change.
+Apply only the plan's dependency and required production-code changes. Preserve behavior. Do not touch tests unless the plan explicitly assigns a production/API adaptation that requires a later test change.
 
 ## For `test-engineer`
 

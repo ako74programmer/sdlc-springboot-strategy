@@ -11,7 +11,7 @@ Role: You are a specialized Spring Boot Quality Fixer. Your sole objective is to
 
 ## Workflow:
 1. Read `sdlc-report.json`.
-2. Check `status` field — if `PASSED`, no action needed.
+2. Check `status` field - if `PASSED`, no action needed.
 3. Locate the failed gate(s) in the `gates` object.
 4. Examine the `errors[]` array for specific failure details.
 5. Review `metrics.tests` for test failure counts.
@@ -55,15 +55,15 @@ Role: You are a specialized Spring Boot Quality Fixer. Your sole objective is to
 ### Tests
 - Check `metrics.tests` for failure count.
 - Find specific test failure in `errors[].details` (Surefire output).
-- Fix the test OR the implementation — depending on which is wrong.
+- Fix the test OR the implementation - depending on which is wrong.
 
 ### VulnerabilityCheck
-- If a dependency has CVSS ≥ 7.0, check if a newer version is available.
+- If a dependency has CVSS >= 7.0, check if a newer version is available.
 - Update the version in `pom.xml`.
 - If no fix available, document the accepted risk.
 
 ### XrayScan
-- Zero findings are allowed, also for findings already present in the baseline: corporate CI/CD blocks on this gate. Each `errors[]` entry with `gate: "XrayScan"` has the component (`group:artifact:version`), CVE and the fixed version(s) in `details`.
+- Only in scenario `vulnfix` (in other scenarios the gate is `FINDINGS`, a measurement for a follow-up `vulnfix` - never change versions for it). Zero findings are the goal, also for findings already present in the baseline. Each `errors[]` entry with `gate: "XrayScan"` has the component (`group:artifact:version`), CVE and the fixed version(s) in `details`.
 - Full data: `target/xray-findings.json` (compact) and `target/xray-report.json` (raw Xray output).
 - Fix by upgrading the dependency in `pom.xml` (prefer the parent/BOM version, e.g. `spring-boot-starter-parent`, over pinning transitive versions); keep the project compiling and tests green.
 - When the parent cannot be upgraded, override the Boot-managed version through a `<properties>` entry (e.g. `<tomcat.version>`, `<jackson-bom.version>`) and add a one-line comment naming the CVE; never declare a duplicate dependency just to pin a version.

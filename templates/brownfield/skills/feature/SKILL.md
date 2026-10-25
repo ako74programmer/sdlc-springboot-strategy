@@ -11,7 +11,7 @@ Signals: a new requirement - endpoint, field, integration, business rule, usuall
 
 `sdlc-report.json` (written after your last change) has `"status": "PASSED"`, every gate is `PASS` or `SKIPPED`, and - when a baseline exists - `Regression` and `TestIntegrity` are `PASS`.
 
-**XrayScan is mandatory.** When `jfrog-xray.properties` exists, `XrayScan` must be `PASS`: corporate CI/CD blocks on it. Vulnerable dependencies are part of every task, also when they were already in the baseline - never "out of scope", never a separate task, never a question for the user. The final verification runs `.\tools\sdlc.ps1` without any `-Skip*` flag. Ask the user only when a finding still has no fix after upgrading to the newest patch version and re-scanning.
+**Xray is a measurement here, not a goal.** `XrayScan` runs and its findings are reported (`gates.XrayScan = FINDINGS`, `metrics.xray.findings`), but this scenario never changes dependency versions to remove them and they do not block `PASSED`. List every finding in the report as a follow-up `vulnfix` task. A scan that could not run (exit code 2: jf, token or server) is an environment problem and stays `FAIL`; never use `-SkipXray` for the final verification.
 
 ## Start
 
@@ -31,7 +31,7 @@ If the task leaves a business decision open (contract, field names, error codes)
 Review `plan.md` yourself before `developer` and send it back to `planner` when any check fails:
 - every acceptance criterion has a task and a named test (criteria that are frontend-only are marked so);
 - new endpoints answer 400 / 405 / 415 for malformed JSON, wrong method and wrong `Content-Type`, with tests;
-- new dependencies were proven resolvable, and Xray findings already in the baseline have a `pom.xml` task;
+- new dependencies were proven resolvable; Xray findings already in the baseline are not planned (follow-up `vulnfix`), but a new dependency must not add findings;
 - no security behaviour of existing code changes unless the task asks for it.
 
 ## Verify

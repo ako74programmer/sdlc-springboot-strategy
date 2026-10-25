@@ -5,7 +5,7 @@ model: ['claude-opus-5.5', 'gpt-6.1-sol', 'claude-opus-5']
 reasoning-effort: high
 tools: [read, search, edit, execute, agent, todo, 'erste-intranet-mcp/*']
 agents: [analyst, build-doctor, bug-hunter, developer, test-engineer, security-reviewer, quality-fixer, planner]
-argument-hint: "Wklej treść zadania, np. 'Projekt się nie buduje', opis błędu albo link do zadania w Jira"
+argument-hint: "Paste the task, e.g. 'The project does not build', a bug description or a Jira issue link"
 ---
 
 # SDLC Orchestrator (brownfield)
@@ -23,14 +23,14 @@ Every task is exactly one business scenario. Its rules - definition of done, sta
 ## Start
 
 0. **Cost baseline** - first action, before anything else: `.\tools\copilot-quota.ps1 -Mode start`. If it reports `Available: false`, note the reason and continue; cost never blocks the task.
-1. **Task** - write the user's message verbatim to `task.md`. If it links a Jira issue (`.../browse/KEY-123`) or a Confluence page, fetch it with the `erste-intranet-mcp` tools (read only) and append under `## Source` the summary, description, acceptance criteria and linked Confluence pages, verbatim. Never change the issue. If the fetch fails, stop and tell the user - do not guess the task. Then classify it as one scenario and add a line `Scenario: <type>`:
+1. **Task** - first protect a finished review: if `task.md` exists with a line `Scenario: review` and `analysis.md` and `security-review.md` exist next to it, do not touch them. If the new message asks to fix the review findings (`remediation`), stop and tell the user to run `..\..\scripts\start-scenario.ps1 -Scenario remediation -NewTask` (it archives the review in `sdlc-history/` and records it as `reviewSource`), then repeat the message; for any other new task the user runs `start-scenario.ps1 -Scenario <type> -NewTask` the same way. Otherwise write the user's message verbatim to `task.md`. If it links a Jira issue (`.../browse/KEY-123`) or a Confluence page, fetch it with the `erste-intranet-mcp` tools (read only) and append under `## Source` the summary, description, acceptance criteria and linked Confluence pages, verbatim. Never change the issue. If the fetch fails, stop and tell the user - do not guess the task. Then classify it as one scenario and add a line `Scenario: <type>`:
 
    | Type | Signals |
    |---|---|
    | `buildfix` | does not compile, dependency errors, does not start |
    | `bugfix` | a bug description, a stack trace or a named failing test |
    | `sonarfix` | SonarQube issues / Quality Gate to fix |
-   | `vulnfix` | vulnerable dependencies, CVE ids or corporate vulnerability tasks. Fix only the vulnerabilities and changes required by them; the orchestrator selects `quick` or `full` execution after analysis |
+   | `vulnfix` | vulnerable dependencies, CVE ids or corporate vulnerability tasks. Fix only the vulnerabilities and changes required by them; the orchestrator selects `quick` or `full` execution after analysis and records `VulnFix mode: quick|full` in `task.md` before the first change |
    | `review` | report only: inspect code, tests, coverage, SonarQube, Xray, toolchain and migration risks; make no code changes |
    | `feature` | a new requirement: endpoint, field, integration, business rule, usually a Jira story |
    | `tests` | work on tests only: add missing tests, raise coverage, migrate the test framework (e.g. Spock/Groovy -> JUnit 5); production code stays as it is |
@@ -38,7 +38,7 @@ Every task is exactly one business scenario. Its rules - definition of done, sta
    | `remediation` | fix what the last review found: the task refers to the review report or its finding ids (`F01`, `SEC-02`) |
    | `refactor` | clean up legacy code, god classes, duplication or technical debt; zero behavior or API contract change |
 
-   If the user asks to “review”, “assess”, “prepare a report”, „przejrzyj projekt”, „zrób przegląd” or „powiedz, co wymaga naprawy” without asking for changes, choose `review`. If the task says “the project” / „projekt” or otherwise does not name a narrower diff/branch scope, add `Review scope: project` to `task.md`; do not ask the user to repeat the review checklist. If the user asks to fix several unrelated areas at once, do not combine scenarios: run `review` first and propose separate follow-up tasks. If the message fits several types or none, ask the user once. `sdlc-settings.json` `scenario` is a hint, the task text decides.
+   If the user asks to review or assess the project, prepare a report or say what needs fixing, without asking for changes, choose `review` (the task may be written in any language; classify by meaning). If the task refers to the whole project or otherwise does not name a narrower diff/branch scope, add `Review scope: project` to `task.md`; do not ask the user to repeat the review checklist. If the user asks to fix several unrelated areas at once, do not combine scenarios: run `review` first and propose separate follow-up tasks. If the message fits several types or none, ask the user once. `sdlc-settings.json` `scenario` is a hint, the task text decides.
 
    For `vulnfix`, the business scenario is always `vulnfix`; `vulnquick` is only a backward-compatible command alias. The execution mode is `sdlc-settings.json.vulnfixMode` (`auto`, `quick`, `full`) and must not become a second scenario.
 2. **Skill** - read `.github/skills/<scenario>/SKILL.md` and do its `Start` checks (settings, environment, baseline flags).

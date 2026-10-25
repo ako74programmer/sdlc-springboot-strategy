@@ -65,3 +65,7 @@ Raport powinien zawierać osobne sekcje:
 - `review` nie modyfikuje kodu, testów ani `pom.xml`.
 - Raport może mieć czerwone bramki — są one ustaleniami, nie zmianami wykonywanymi w review.
 - Każda dalsza praca ma jeden jasno określony scenariusz i własne kryteria zakończenia.
+
+## Xray poza `vulnfix`
+
+W scenariuszach innych ni? `vulnfix` skan Xray jest tylko pomiarem: bramka ma stan `FINDINGS`, nie blokuje `PASSED`, a ustalenia trafiaj? do raportu jako kolejne zadanie `vulnfix`. Skan, kt?ry nie m?g? si? wykona? (jf, token, serwer), nadal jest `FAIL`.

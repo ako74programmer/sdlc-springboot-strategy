@@ -11,7 +11,7 @@ Signals: work on tests only - add missing tests, raise coverage, migrate the tes
 
 `sdlc-report.json` (written after your last change) has `"status": "PASSED"`, every gate is `PASS` or `SKIPPED`, and - when a baseline exists - `Regression` and `TestIntegrity` are `PASS`. Also `TestMigration` is `PASS`.
 
-**XrayScan is mandatory.** When `jfrog-xray.properties` exists, `XrayScan` must be `PASS`: corporate CI/CD blocks on it. Vulnerable dependencies are part of every task, also when they were already in the baseline - never "out of scope", never a separate task, never a question for the user. The final verification runs `.\tools\sdlc.ps1` without any `-Skip*` flag. Ask the user only when a finding still has no fix after upgrading to the newest patch version and re-scanning.
+**Xray is a measurement here, not a goal.** `XrayScan` runs and its findings are reported (`gates.XrayScan = FINDINGS`, `metrics.xray.findings`), but this scenario never changes dependency versions to remove them and they do not block `PASSED`. List every finding in the report as a follow-up `vulnfix` task. A scan that could not run (exit code 2: jf, token or server) is an environment problem and stays `FAIL`; never use `-SkipXray` for the final verification.
 
 ## Start
 
@@ -25,14 +25,14 @@ Signals: work on tests only - add missing tests, raise coverage, migrate the tes
 
 ## Rules
 
-`src/main` must not change. `pom.xml` may change in test-scope dependencies and test plugins (surefire, test compilers, contract generators), and in runtime dependency versions needed to fix Xray findings (delegate those to `quality-fixer`, with a comment naming the CVE). No `developer` and no `security-reviewer`. If the analysis shows production code is untestable without a change, stop and ask the user. `TestMigration` fails when fewer tests run or pass than in the baseline (Spock container entries of unrolled features are not counted) or when `src/main` changed; `TestIntegrity` then only warns about replaced test files, but disabled tests and fewer assertions still fail it.
+`src/main` must not change, not even a minimal change for testability. `pom.xml` may change only in test-scope dependencies and test plugins (surefire, test compilers, contract generators); runtime dependency versions are not touched (Xray findings are a follow-up `vulnfix`). No `developer` and no `security-reviewer`. If the analysis shows production code is untestable without a change, stop and ask the user: such a change is only the user's explicit choice, recorded in `task.md`, and is done as a separate task (`refactor` or `bugfix`), never inside `tests`. `TestMigration` fails when fewer tests run or pass than in the baseline (Spock container entries of unrolled features are not counted) or when `src/main` changed; `TestIntegrity` then only warns about replaced test files, but disabled tests and fewer assertions still fail it.
 
 ## Plan check
 
 Review `plan.md` yourself before the first batch and send it back to `planner` when any check fails:
 - every existing test method that is replaced has a named successor in the mapping table (parameterised cases keep all data rows);
 - the test runner configuration (e.g. surefire `includes`) will pick up the new test classes;
-- no task touches `src/main`; `pom.xml` tasks are limited to test scope and to runtime version bumps for Xray findings.
+- no task touches `src/main`; `pom.xml` tasks are limited to test scope.
 
 ## Verify
 
