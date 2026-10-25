@@ -16,7 +16,7 @@ Najpierw zdiagnozować projekt, bez zmiany kodu, a następnie zdecydować, któr
      -Project service
    ```
 
-3. Otwórz `projects/service` w VS Code.
+3. Otwórz `projects/service` w VS Code. Nie uruchamiaj ręcznie `env-up.ps1` — orchestrator uruchomi SonarQube i wymaganą bazę w ramach flow review.
 4. W chacie agenta wpisz:
 
    ```text

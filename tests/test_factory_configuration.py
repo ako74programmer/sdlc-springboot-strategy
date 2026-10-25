@@ -78,6 +78,7 @@ def test_business_scenario_contract():
     pipeline = (ROOT / "templates/brownfield/sdlc.ps1").read_text(encoding="utf-8")
     review = (ROOT / "templates/brownfield/skills/review/SKILL.md").read_text(encoding="utf-8")
     review_doc = (ROOT / "doc/scenarios/05-review-i-wybor-zakresu.md").read_text(encoding="utf-8")
+    review_tutorial = (ROOT / "doc/tutorial/brownfield-review.md").read_text(encoding="utf-8")
     assert '"vulnfix", "refactor"' in start
     assert '"vulnquick"' not in start.split('$scenarios =', 1)[1].split('\n', 1)[0]
     assert "vulnfixMode" in start
@@ -86,6 +87,8 @@ def test_business_scenario_contract():
     assert "add `Review scope: project`" in orchestrator
     assert "otherwise add `Review scope: project`" in review
     assert "Przejrzyj projekt i powiedz, co wymaga naprawy." in review_doc
+    assert "orchestrator uruchomi SonarQube" in review_doc
+    assert "Nie uruchamiaj ręcznie `env-up.ps1`" in review_tutorial
     assert '$sonarClean = ($settings.scenario -in @("sonarfix", "remediation"))' in pipeline
     assert "$vulnfixQuick" in pipeline
 

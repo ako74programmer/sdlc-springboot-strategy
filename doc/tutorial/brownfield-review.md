@@ -87,9 +87,7 @@ Sprawdź `[3/6] Maven and Java`: `Maven 3.9.16` i `Java 21 (from pom.xml)`. Jeś
 
 ### Krok 2. Środowisko
 
-```powershell
-.\scripts\env-up.ps1 -ProjectPath projects\be-wesola_banda_piratow
-```
+Nie uruchamiaj ręcznie `env-up.ps1`. Po otrzymaniu promptu orchestrator uruchamia SonarQube i wymaganą bazę w ramach flow review. Użytkownik musi tylko mieć skonfigurowane ścieżki, dostęp do usług oraz tokeny.
 
 ### Krok 3. Okno VS Code
 
