@@ -20,10 +20,11 @@ Najpierw zdiagnozować projekt, bez zmiany kodu, a następnie zdecydować, któr
 4. W chacie agenta wpisz:
 
    ```text
-   Wykonaj pełny przegląd projektu. Nie zmieniaj kodu, pom.xml ani testów.
-   Przygotuj raport z podatnościami, SonarQube, coverage, testami, toolchainem,
-   problemami w pom.xml i ryzykami migracji. Zaproponuj osobne scenariusze dalszych prac.
+   Przejrzyj projekt i powiedz, co wymaga naprawy.
    ```
+
+   To krótkie polecenie wystarcza. Orchestrator rozpoznaje `review`, przyjmuje
+   zakres `project` i uruchamia pełny diagnostyczny flow opisany w skillu review.
 
 5. Poczekaj na `analysis.md`, `security-review.md` i raport pipeline’u.
 6. Sprawdź, że review nie zmienił śledzonych plików projektu:

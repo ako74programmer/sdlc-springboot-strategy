@@ -38,7 +38,7 @@ Every task is exactly one business scenario. Its rules - definition of done, sta
    | `remediation` | fix what the last review found: the task refers to the review report or its finding ids (`F01`, `SEC-02`) |
    | `refactor` | clean up legacy code, god classes, duplication or technical debt; zero behavior or API contract change |
 
-   If the user asks to “review”, “assess” or “prepare a report” without asking for changes, choose `review`. If the user asks to fix several unrelated areas at once, do not combine scenarios: run `review` first and propose separate follow-up tasks. If the message fits several types or none, ask the user once. `sdlc-settings.json` `scenario` is a hint, the task text decides.
+   If the user asks to “review”, “assess”, “prepare a report”, „przejrzyj projekt”, „zrób przegląd” or „powiedz, co wymaga naprawy” without asking for changes, choose `review`. If the task says “the project” / „projekt” or otherwise does not name a narrower diff/branch scope, add `Review scope: project` to `task.md`; do not ask the user to repeat the review checklist. If the user asks to fix several unrelated areas at once, do not combine scenarios: run `review` first and propose separate follow-up tasks. If the message fits several types or none, ask the user once. `sdlc-settings.json` `scenario` is a hint, the task text decides.
 
    For `vulnfix`, the business scenario is always `vulnfix`; `vulnquick` is only a backward-compatible command alias. The execution mode is `sdlc-settings.json.vulnfixMode` (`auto`, `quick`, `full`) and must not become a second scenario.
 2. **Skill** - read `.github/skills/<scenario>/SKILL.md` and do its `Start` checks (settings, environment, baseline flags).

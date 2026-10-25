@@ -5,7 +5,7 @@ description: "Scenario review for the brownfield sdlc-orchestrator: review only,
 
 # Scenario `review`
 
-Signals: review only, nothing is changed - a code review of a change (a merge request, a branch against its base) or a code and security review of the whole project; the result is a report.
+Signals: review only, nothing is changed - a code review of a change (a merge request, a branch against its base) or a code and security review of the whole project. Polish prompts such as „Przejrzyj projekt i powiedz, co wymaga naprawy” mean `Review scope: project`; the result is a report.
 
 ## Definition of Done
 
@@ -13,7 +13,7 @@ Report only: `Toolchain` is `PASS` in the baseline, `analysis.md` and `security-
 
 ## Start
 
-- Add a line `Review scope: changes <base>..HEAD` to `task.md` (the task names a merge request, branch or commits; `<base>` is the branch it merges into, e.g. `origin/main`) or `Review scope: project` (the whole project); if the task does not say which, ask once.
+- Add a line `Review scope: changes <base>..HEAD` to `task.md` when the task names a merge request, branch or commits; otherwise add `Review scope: project`. A short request such as “Przejrzyj projekt i powiedz, co wymaga naprawy” is sufficient and must not trigger a request to restate the checklist.
 - `sdlc-settings.json` `scenario` must be `review` (it enables the `Toolchain` gate); if not, tell the user to re-run `attach-project.ps1 -Scenario review`.
 - Environment: SonarQube and the project database (if configured) must run before any gate (`..\..\scripts\env-up.ps1`). Never use `-Skip*` flags: the measurement is part of the report (`Toolchain` fails on any skip).
 - Baseline: `.\tools\sdlc.ps1 -Baseline`. Read `gates.Toolchain` and `toolchain` from `sdlc-report.json` right after it: when `Toolchain` is `FAIL`, stop and give the user its `errors[]` - JDK, Maven, `settings.xml`, SonarQube and Xray access are the user's environment, never something a delegate changes. When the user has fixed it (e.g. re-ran `attach-project.ps1` or `env-up.ps1`), record the baseline again: no file has changed yet. Every other red gate (including `SonarQube` failing on the project's own configuration, when `Toolchain` warns "server reached") is a finding for the report, not a reason to stop.
@@ -24,7 +24,7 @@ baseline with `Toolchain` = `PASS` -> `.\tools\sdlc.ps1 -CiParity` once (no chan
 
 ## Rules
 
-- nothing is fixed: no `planner`, `developer`, `test-engineer`, `build-doctor`, `bug-hunter` or `quality-fixer`, and no change to code, tests, `pom.xml`, configuration or SonarQube (no issue marked). The only files written are `task.md`, `analysis.md` and `security-review.md`. A red gate, an Xray finding, a SonarQube issue or a failing test is a finding with a severity, never a task of this run;
+- nothing is fixed: no `planner`, `developer`, `test-engineer`, `build-doctor`, `bug-hunter` or `quality-fixer`, and no change to code, tests, `pom.xml`, configuration or SonarQube (no issue marked). The review artifacts are `task.md`, `analysis.md` and `security-review.md`; pipeline/recon reports are generated evidence and must remain excluded from the project commit. A red gate, an Xray finding, a SonarQube issue or a failing test is a finding with a severity, never a task of this run;
 - scope `changes`: findings are about the changed lines and what they affect (`git diff <base>...HEAD`); gate results, Xray and SonarQube issues on untouched code are listed separately as context. Scope `project`: everything in the repository;
 - give both delegates the scope line from `task.md`. `analyst` writes the review report into `analysis.md`; `security-reviewer` writes `security-review.md` and never edits other files. You never edit either report: when one has an error (a wrong version, property or severity), send it back to its author with the exact correction;
 - one severity scale: security and dependency (Xray) findings are rated only in `security-review.md` (a component gets the highest Xray severity among its CVEs: Critical -> CRITICAL, High -> HIGH, Medium -> MEDIUM, Low -> LOW); `analysis.md` refers to them by their `SEC-xx` id without its own rating. Check that the counts in both summaries do not count the same finding twice;

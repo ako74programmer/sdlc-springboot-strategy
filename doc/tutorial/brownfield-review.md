@@ -104,17 +104,12 @@ Wklej prompt z sekcji 6.
 Przegląd projektu:
 
 ```
-Scenariusz: review. Zakres: cały projekt. Tylko raport - niczego nie zmieniaj.
-
-Cel:
-1. Pomiar: baseline i jeden przebieg -CiParity. Jeśli bramka Toolchain jest czerwona, zatrzymaj się i podaj mi przyczyny - to moje środowisko. Inne czerwone bramki to ustalenia.
-2. Przegląd kodu w analysis.md i przegląd bezpieczeństwa w security-review.md.
-
-Kryteria akceptacji:
-1. Toolchain = PASS; żaden śledzony plik nie zmienił się względem baseline.
-2. Każde ustalenie ma ważność (CRITICAL/HIGH/MEDIUM/LOW), file:line, uzasadnienie i propozycję poprawki.
-3. Raport: użyte narzędzia (Java, Maven, settings), bramki baseline i -CiParity, ustalenia od najważniejszych, Sonar według reguł, Xray według komponentów, proponowane kolejne zadania z typem scenariusza.
+Przejrzyj projekt i powiedz, co wymaga naprawy.
 ```
+
+Orchestrator sam wybiera `review`, ustawia `Review scope: project` i wykonuje
+baseline, testy, coverage, SonarQube, Xray, kontrolę toolchainu, `-CiParity`,
+analizę kodu oraz raport bezpieczeństwa. Nie zmienia kodu.
 
 Przegląd zmian: zamień drugą linię na `Zakres: zmiany gałęzi <gałąź> względem origin/main.`
 

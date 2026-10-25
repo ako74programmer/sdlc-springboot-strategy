@@ -866,7 +866,8 @@ if ($settings.scenario -eq "review") {
         $ok = $false
         Add-GateError "Toolchain" "Xray scan could not run (jf, token or server)" "See the XrayScan error; token: JF_ACCESS_TOKEN or jfrog.token"
     } elseif ($script:gateStatus.gates["XrayScan"] -eq "SKIPPED") {
-        $script:gateStatus.warnings += "Toolchain: XrayScan did not run because the build or tests failed - Xray access not confirmed"
+        $ok = $false
+        Add-GateError "Toolchain" "Xray scan did not run" "The build or tests failed before a JAR could be scanned; Xray access is not confirmed and the review cannot claim a complete security measurement"
     }
     Set-Gate "Toolchain" $ok
 }

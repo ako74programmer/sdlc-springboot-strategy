@@ -76,10 +76,16 @@ def test_business_scenario_contract():
     start = (ROOT / "scripts/start-scenario.ps1").read_text(encoding="utf-8")
     orchestrator = (ROOT / "templates/brownfield/agents/sdlc-orchestrator.agent.md").read_text(encoding="utf-8")
     pipeline = (ROOT / "templates/brownfield/sdlc.ps1").read_text(encoding="utf-8")
+    review = (ROOT / "templates/brownfield/skills/review/SKILL.md").read_text(encoding="utf-8")
+    review_doc = (ROOT / "doc/scenarios/05-review-i-wybor-zakresu.md").read_text(encoding="utf-8")
     assert '"vulnfix", "refactor"' in start
     assert '"vulnquick"' not in start.split('$scenarios =', 1)[1].split('\n', 1)[0]
     assert "vulnfixMode" in start
     assert "vulnquick` is only a backward-compatible command alias" in orchestrator
+    assert "„przejrzyj projekt”" in orchestrator
+    assert "add `Review scope: project`" in orchestrator
+    assert "otherwise add `Review scope: project`" in review
+    assert "Przejrzyj projekt i powiedz, co wymaga naprawy." in review_doc
     assert '$sonarClean = ($settings.scenario -in @("sonarfix", "remediation"))' in pipeline
     assert "$vulnfixQuick" in pipeline
 
