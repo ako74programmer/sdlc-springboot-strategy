@@ -290,6 +290,29 @@ if ($projectPom) {
             }
         }
     }
+    # Version properties of the parent after this task (its target = newest version): a library the new parent already
+    # manages at its newest version needs no own property
+    $targetProps = @{}
+    $parentTarget = $null
+    if ($parent) {
+        $parentTarget = if ($newest.latest[$parent.ga]) { $newest.latest[$parent.ga] } else { $parent.version }
+        $tParts = $parent.ga -split ':'
+        $tDir = Join-Path $m2 ($tParts[0].Replace('.', '\'))
+        $tPoms = @(@{ ga = $parent.ga; file = (Join-Path $tDir "$($tParts[1])\$parentTarget\$($tParts[1])-$parentTarget.pom") })
+        if ($tParts[0] -eq "org.springframework.boot") {
+            $tPoms += @{ ga = "org.springframework.boot:spring-boot-dependencies"; file = (Join-Path $tDir "spring-boot-dependencies\$parentTarget\spring-boot-dependencies-$parentTarget.pom") }
+        }
+        foreach ($tp in $tPoms) {
+            if (-not (Test-Path $tp.file)) {
+                & mvn -B -q @mvnSettings -f $pom dependency:get "-Dartifact=$($tp.ga):${parentTarget}:pom" "-Dtransitive=false" 2>&1 |
+                    Out-String | Set-Content "$tmp\parent-target.log" -Encoding UTF8
+            }
+            if (-not (Test-Path $tp.file)) { Write-Host "Parent $($tp.ga):$parentTarget not found - see $tmp\parent-target.log" -ForegroundColor Yellow; continue }
+            [xml]$tpx = Get-Content $tp.file -Raw
+            $tpn = $tpx.SelectSingleNode("/*[local-name()='project']/*[local-name()='properties']")
+            if ($tpn) { foreach ($c in $tpn.ChildNodes) { if ($c.NodeType -eq "Element" -and -not $targetProps.ContainsKey($c.LocalName)) { $targetProps[$c.LocalName] = $c.InnerText.Trim() } } }
+        }
+    }
     # Java: maven.compiler.* in pom.xml, but the parent compiles with its own java.version
     if (-not $props.ContainsKey("java.version")) {
         $want = @("maven.compiler.release", "maven.compiler.source", "maven.compiler.target") | Where-Object { $props.ContainsKey($_) } | ForEach-Object { $props[$_] } | Select-Object -First 1
@@ -317,8 +340,21 @@ if ($projectPom) {
         $want = if ($managedBy) { $managedBy } elseif ($family) { $family.prop } else { $null }
         if (-not $want -or $prop -eq $want) { continue }
         $via = if ($family) { "the family BOM $($family.ga)" } else { "the parent" }
-        $fix = if ($o.kind -eq "annotationProcessorPaths") { "use `${$want} as its version (set <$want> to the newest version)" }
-               else { "remove its own <version> and set <$want> in properties to the newest version" }
+        $ownVal = if ($prop) { $props[$prop] } else { $raw }
+        $newestVal = if ($newest.latest[$ga]) { $newest.latest[$ga] } else { $ownVal }
+        $newestText = if ($newest.latest[$ga]) { "newest $newestVal" } else { "pom.xml has $ownVal" }
+        $managedVer = ConvertTo-Ver $targetProps[$want]
+        $newestVer = ConvertTo-Ver $newestVal
+        if ($managedVer -and $newestVer -and (Compare-Ver $managedVer $newestVer) -ge 0) {
+            # The new parent already brings the newest version: an own property would only repeat it
+            $fix = if ($o.kind -eq "annotationProcessorPaths") { "use `${$want} as its version" } else { "remove its own <version>" }
+            $fix += "; the parent $parentTarget already manages <$want> = $($targetProps[$want]) ($newestText) - do not add <$want> to properties"
+        } else {
+            $fix = if ($o.kind -eq "annotationProcessorPaths") { "use `${$want} as its version (set <$want> to the newest version)" }
+                   else { "remove its own <version> and set <$want> in properties to the newest version" }
+            if ($newestVal) { $fix += " $newestVal" }
+            if ($managedVer) { $fix += " (the parent $parentTarget manages $($targetProps[$want]))" }
+        }
         $issues.Add([pscustomobject]@{ check = "version source"; action = "change"; where = "$($o.kind) $ga ($raw)"
             problem = "$via manages it with <$want>; its own version can drift from the rest of the family"; fix = $fix })
     }

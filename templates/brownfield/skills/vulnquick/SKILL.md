@@ -18,6 +18,7 @@ The goal is simple: **every version in `pom.xml` and the parent goes to the newe
 - every row of the fix list with a `target` has that version in `pom.xml`, unless the build or a test failed with it (status `needs vulnfix (code change)`);
 - every issue of `pom-consistency.json` with `action` = `change` is fixed; every issue with `action` = `proposal` is in the report as a proposal for the user and `pom.xml` still has what it names;
 - `analysis.md` has `## Pom review`; each of its version findings is fixed, each removal or other non-version finding is in the report as a proposal;
+- every row of `## Fix list` has a status set from the final scan (Rules - statuses);
 - nothing was removed from `pom.xml` (`git diff refs/sdlc/baseline -- pom.xml` deletes no dependency, exclusion, plugin or configuration block).
 
 `XrayScan` may be `FAIL`, and `status` may be `FAILED` for that reason only.
@@ -42,6 +43,16 @@ Jira filter -> baseline (`-Baseline -SkipSonar`) -> `.\tools\xray-candidates.ps1
 - fix path order: the parent first, to its `target`. Every version override and explicit version in `pom.xml` is set to its `target`; an override is removed only when the new parent itself manages exactly that newest version. A Boot-managed version property (`<tomcat.version>`, `<jackson-2-bom.version>`, `<jackson-bom.version>` ...) gets a one-line comment naming the CVE when it fixes one; a transitive library gets a `<dependencyManagement>` entry (never a second `<dependency>`, never an exclusion or an Xray ignore rule). The Java level stays the one `pom.xml` declares (no upgrade), but the build must really use it: when `pom-consistency.json` reports it, add `<java.version>` with that level; `maven.compiler.*` stays (its removal is a proposal);
 - an affected path naming a jar that the scanned jar no longer contains in that version (the corporate scan saw an older image) gets status `already fixed in code` with the version now in the jar - it closes after the next deployment;
 - a component embedded in another jar (`xray-candidates.ps1` says "embedded in <library>") changes only with the containing library: its row has no `target`; the containing library's row decides. Status `embedded in <library>` with the version of the library after this task;
+- statuses: after the last verify run, set the status of every row of `## Fix list` (versions and consistency rows) from the final scan (`target\xray-findings.json`, findings per component) - never from the plan, never left empty. Exactly one per row:
+  - `fixed` - the version changed and the component has no findings left;
+  - `partly fixed: <before> -> <after> findings, needs <version> (not in the repository)` - the version changed to the newest in the repository, findings are left (`<version>` = `required` in `xray-candidates.json`);
+  - `updated` - the version changed, the component had no findings;
+  - `unchanged (newest)` - the version was already the newest;
+  - `already fixed in code` / `embedded in <library> <version>` - see above;
+  - `no fix version in the repository` - the version could not change and findings are left;
+  - `needs vulnfix (code change)` - see below;
+  - consistency rows: `done` or `proposal`.
+  A CYB issue closes after deployment only when its row is `fixed` or `already fixed in code`; any other status keeps it open - say so in the report;
 - one delegation to `developer` with the exact table (property or dependency, from -> to, comment) and the consistency fixes. Only build files (`pom.xml`, `.mvn/`) change; `VulnGuard` fails on any other file;
 - the only reason to restore an older version: the build or a test fails with the new one. Then have `developer` restore that one version and set status `needs vulnfix (code change)`; never adapt code or tests;
 - verify `.\tools\sdlc.ps1 -SkipSonar` after the delegation. When `Compilation`, `Tests`, `Regression`, `TestIntegrity` and `VulnGuard` are `PASS`, delegate the final `pom.xml` review once to `analyst` (read only, scenario `vulnquick`: it appends `## Pom review` to `analysis.md`; give it the fix list from `task.md`). Version findings it reports (a version older than `target`, a version from the wrong property) go to `developer` in one more delegation, then verify again; findings that would remove something (a dependency, an exclusion, a property block) or need code go to the report as proposals for the user - never applied. At most 3 verify runs after the baseline. No `-CiParity`.
@@ -49,7 +60,7 @@ Jira filter -> baseline (`-Baseline -SkipSonar`) -> `.\tools\xray-candidates.ps1
 ## Report
 
 Short, no other sections except cost:
-- the fix list table (component, version from -> to or the reason, its CVEs, the CYB issues pointing at it, status: fixed / already fixed in code / embedded / no fix version in the repository / needs vulnfix);
+- the fix list table (component, version from -> to or the reason, its CVEs, the CYB issues pointing at it, status from the final scan as in Rules - statuses);
 - Xray findings baseline -> now, by component;
 - the consistency issues and the `pom.xml` review findings with what was done;
 - **Proposals for the user** - every removal or other non-version change the tool or the review suggested (e.g. `hazelcast-kubernetes`, an exclusion that does not work), each with the reason and what the user should check before deciding (e.g. cluster discovery on the target environment);

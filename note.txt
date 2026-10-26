@@ -1,0 +1,5 @@
+git fetch github
+git merge github/refactor/scenario-skills
+
+Pamiętaj tylko, że jeśli zechcesz zsynchronizować kopię zapasową na gitlab.com (origin), wystarczy wykonać:
+git push origin refactor/scenario-skills

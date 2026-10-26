@@ -23,7 +23,7 @@ Raport korporacyjny mówi, co naprawić, ale nie mówi, czy poprawka zadziała. 
 
 Dlatego `vulnquick` zawsze robi skan Xray przed zmianą i po niej i naprawia wszystko, co Xray znajdzie, także poza filtrem. Wersje docelowe dla wszystkich komponentów daje jedno polecenie `.\tools\xray-candidates.ps1` (ok. 15 s): miejsce komponentu w JAR-ze (`BOOT-INF/lib` albo zaszyty w innej bibliotece), wersję naprawczą i najnowszą wersję w ewsi. Cel to zawsze **najnowsza wersja w ewsi**: dla komponentów ze skanu, dla parenta (`spring-boot-starter-parent`) i dla każdej wersji zapisanej w `pom.xml` (właściwości `*.version`, nadpisania wersji z parenta, jawne `<version>`), także bez ustaleń Xray. Również dla bibliotek, których najnowsza wersja nie usuwa wszystkich ustaleń (np. `hazelcast` 5.7.0) - raport podaje wtedy liczbę ustaleń przed i po.
 
-Spójność `pom.xml` (to, co sprawdza recenzent): to samo wywołanie narzędzia zapisuje `sdlc-tmp\pom-consistency.json` - poziom Javy, którego build naprawdę używa (dodaje `java.version`), jedno źródło wersji dla rodziny bibliotek (`jackson-bom.version`, `jackson-2-bom.version`, `hazelcast.version`, `httpcore5.version`, `lombok.version` także w `annotationProcessorPaths`). Agent naprawia je w tej samej zmianie (`action: change`). **Z `pom.xml` nic nie jest usuwane**: zbędne zależności (np. `hazelcast-kubernetes` przy `hazelcast` 5), nieskuteczne wykluczenia czy stare właściwości trafiają do raportu jako propozycje (`action: proposal`), decyzja należy do Ciebie. Na koniec `analyst` robi krótki przegląd gotowego `pom.xml` (m.in. wykluczenia, sprawdzone `dependency:tree`) i zapisuje `## Pom review` w `analysis.md`; poprawki wersji z przeglądu idą w jeszcze jednej delegacji, reszta to propozycje w raporcie.
+Spójność `pom.xml` (to, co sprawdza recenzent): to samo wywołanie narzędzia zapisuje `sdlc-tmp\pom-consistency.json` - poziom Javy, którego build naprawdę używa (dodaje `java.version`), jedno źródło wersji dla rodziny bibliotek (`jackson-bom.version`, `jackson-2-bom.version`, `hazelcast.version`, `httpcore5.version`, `lombok.version` także w `annotationProcessorPaths`; gdy docelowy parent sam zarządza już najnowszą wersją, narzędzie każe tylko usunąć własne `<version>`, bez nowej właściwości). Agent naprawia je w tej samej zmianie (`action: change`). **Z `pom.xml` nic nie jest usuwane**: zbędne zależności (np. `hazelcast-kubernetes` przy `hazelcast` 5), nieskuteczne wykluczenia czy stare właściwości trafiają do raportu jako propozycje (`action: proposal`), decyzja należy do Ciebie. Na koniec `analyst` robi krótki przegląd gotowego `pom.xml` (m.in. wykluczenia, sprawdzone `dependency:tree`) i zapisuje `## Pom review` w `analysis.md`; poprawki wersji z przeglądu idą w jeszcze jednej delegacji, reszta to propozycje w raporcie.
 
 ## 2. Co sprawdza pipeline
 
@@ -88,7 +88,9 @@ Orchestrator kończy krótkim raportem:
 |---|---|
 | Zadanie, CVE, komponent | z Jiry |
 | Wersja przed -> po | albo powód, dla którego się nie zmieniła |
-| Status | `fixed`, `already fixed in code`, `embedded in <biblioteka>, no fixed release`, `no fix version in the repository`, `needs vulnfix` |
+| Status | Z końcowego skanu Xray, nigdy z planu; każdy wiersz ma jeden: `fixed` (zmiana wersji, brak ustaleń), `partly fixed: <przed> -> <po> findings, needs <wersja> (not in the repository)` (najnowsza wersja z ewsi nie usuwa wszystkiego), `updated` (zmiana wersji, nie było ustaleń), `unchanged (newest)`, `already fixed in code`, `embedded in <biblioteka> <wersja>`, `no fix version in the repository`, `needs vulnfix (code change)`; wiersze spójności: `done` / `proposal` |
+
+Zadanie CYB zamknie się po wdrożeniu tylko przy statusie `fixed` albo `already fixed in code`; pozostałe statusy oznaczają, że zostaje otwarte.
 
 Pod tabelą: pozostałe ustalenia Xray, Xray baseline -> teraz, tabela bramek i koszt (`tools\copilot-quota.ps1`).
 
